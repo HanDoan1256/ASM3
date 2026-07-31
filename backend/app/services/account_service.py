@@ -1,3 +1,4 @@
+from sqlalchemy import text  
 from sqlalchemy.orm import Session
 
 from app.models.address import Address
@@ -8,6 +9,7 @@ from app.schemas.account import AddressCreate, AddressUpdate, CustomerUpdate
 
 class AccountService:
     def __init__(self, db: Session) -> None:
+        self.db = db 
         self.address_repository = AddressRepository(db)
         self.customer_repository = CustomerRepository(db)
 
@@ -18,9 +20,31 @@ class AccountService:
         customer = self.customer_repository.get_by_id(customer_id)
         if not customer:
             return None
+            
+
+        changes = []
         for field, value in payload.model_dump(exclude_none=True).items():
+            old_value = getattr(customer, field, "")
+            if str(old_value) != str(value):
+                changes.append(f"{field} to '{value}'")
             setattr(customer, field, value)
-        return self.customer_repository.update(customer)
+            
+
+        updated_customer = self.customer_repository.update(customer)
+
+    
+        if changes:
+            action_text = "Updated: " + " | ".join(changes)
+            self.db.execute(
+                text("INSERT INTO account_history (customer_id, action) VALUES (:cid, :act)"),
+                {"cid": customer_id, "act": action_text}
+            )
+            self.db.commit()
+
+        return updated_customer
+
+    def delete_customer(self, customer_id: str) -> bool:
+        return self.customer_repository.delete_account(customer_id)
 
     def list_addresses(self, customer_id: str):
         return self.address_repository.list_by_customer_id(customer_id)
@@ -44,3 +68,10 @@ class AccountService:
         self.address_repository.delete(address)
         return True
 
+
+    def get_account_history(self, customer_id: str):
+        result = self.db.execute(
+            text("SELECT action, created_at FROM account_history WHERE customer_id = :cid ORDER BY created_at DESC"),
+            {"cid": customer_id}
+        )
+        return [{"action": row[0], "created_at": row[1]} for row in result]

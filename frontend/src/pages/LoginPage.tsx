@@ -1,6 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Link } from "react-router-dom";
-
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icon";
 import { Input } from "../components/Input";
@@ -9,10 +8,13 @@ import { authService } from "../services/authService";
 export function LoginPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState(""); // 1. Thêm State lưu số điện thoại
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  
+  const navigate = useNavigate();
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -21,16 +23,33 @@ export function LoginPage() {
 
     try {
       if (mode === "register") {
-        const result = await authService.register({ email, full_name: fullName, password });
-        setMessage(`Registered ${result.email} successfully.`);
+        // 2. Truyền phone vào payload để gửi xuống Backend
+        const result = await authService.register({ 
+          email, 
+          full_name: fullName, 
+          password, 
+          phone // Đảm bảo authService và Backend của bạn nhận trường này
+        });
+        setMessage(`Registered ${result.email} successfully. Please switch to Login tab.`);
       } else {
         const result = await authService.login({ email, password });
-        localStorage.setItem("smartfm_principal_id", result.principal_id);
-        localStorage.setItem("smartfm_principal_type", result.principal_type);
-        localStorage.setItem("smartfm_principal_role", result.role);
-        setMessage(result.message);
+        
+        if (result && result.principal_id) {
+          localStorage.setItem("smartfm_principal_id", result.principal_id);
+          localStorage.setItem("smartfm_principal_type", result.principal_type || "customer");
+          localStorage.setItem("smartfm_principal_role", result.role || "customer");
+          
+          setMessage("Login successful! Redirecting to account...");
+
+          setTimeout(() => {
+            navigate("/account");
+          }, 500);
+        } else {
+          setError("Invalid email or password.");
+        }
       }
-    } catch {
+    } catch (err) {
+      console.error(err);
       setError("Authentication request failed. Please confirm the backend is running.");
     }
   };
@@ -98,10 +117,14 @@ export function LoginPage() {
 
             <form className="space-y-4" onSubmit={handleSubmit}>
               {mode === "register" && (
-                <Input label="Full Name" placeholder="Alex Morgan" value={fullName} onChange={(event) => setFullName(event.target.value)} />
+                <>
+                  <Input label="Full Name" placeholder="Alex Morgan" value={fullName} onChange={(event) => setFullName(event.target.value)} required />
+                  {/* 3. Thêm ô nhập số điện thoại chỉ xuất hiện khi ở chế độ Register */}
+                  <Input label="Phone Number" placeholder="0912345678" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} required />
+                </>
               )}
-              <Input label="Email Address" placeholder="team@smartfm.com" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
-              <Input label="Password" placeholder="Enter your password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+              <Input label="Email Address" placeholder="team@smartfm.com" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+              <Input label="Password" placeholder="Enter your password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
 
               <Button className="w-full" type="submit">
                 {mode === "login" ? "Sign In" : "Create Account"}

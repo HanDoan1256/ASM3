@@ -26,15 +26,24 @@ from app.models import (  # noqa: F401
 if settings.database_url.startswith("sqlite"):
     Base.metadata.create_all(bind=engine)
 
+# Định nghĩa tường minh các nguồn được phép kết nối
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
 app = FastAPI(
     title="SmartFM API",
     version="0.1.0",
     description="Smart Freight Management System backend foundation.",
 )
 
+# Sửa lại thành lấy từ biến origins phía trên (hoặc dùng ["*"] khi đang dev)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
