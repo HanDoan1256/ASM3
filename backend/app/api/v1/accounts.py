@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.schemas.account import AddressCreate, AddressRead, AddressUpdate, CustomerRead, CustomerUpdate
+
+from app.schemas.account import AddressCreate, AddressRead, AddressUpdate, CustomerRead, CustomerUpdate, AccountHistoryRead
 from app.services.account_service import AccountService
 
 router = APIRouter()
@@ -50,6 +51,6 @@ def delete_address(address_id: int, db: Session = Depends(get_db)) -> Response:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Address not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-@router.get("/customers/{customer_id}/history")
-def get_customer_history(customer_id: str, db: Session = Depends(get_db)):
+@router.get("/customers/{customer_id}/history", response_model=list[AccountHistoryRead])
+def get_customer_history(customer_id: str, db: Session = Depends(get_db)) -> list[AccountHistoryRead]:
     return AccountService(db).get_account_history(customer_id)

@@ -1,17 +1,19 @@
-from sqlalchemy import text  
 from sqlalchemy.orm import Session
 
 from app.models.address import Address
 from app.repositories.address_repository import AddressRepository
 from app.repositories.customer_repository import CustomerRepository
+
+from app.repositories.account_history_repository import AccountHistoryRepository
 from app.schemas.account import AddressCreate, AddressUpdate, CustomerUpdate
 
 
 class AccountService:
     def __init__(self, db: Session) -> None:
-        self.db = db 
         self.address_repository = AddressRepository(db)
         self.customer_repository = CustomerRepository(db)
+       
+        self.history_repository = AccountHistoryRepository(db)
 
     def get_customer(self, customer_id: str):
         return self.customer_repository.get_by_id(customer_id)
@@ -20,7 +22,6 @@ class AccountService:
         customer = self.customer_repository.get_by_id(customer_id)
         if not customer:
             return None
-            
 
         changes = []
         for field, value in payload.model_dump(exclude_none=True).items():
@@ -28,18 +29,12 @@ class AccountService:
             if str(old_value) != str(value):
                 changes.append(f"{field} to '{value}'")
             setattr(customer, field, value)
-            
 
         updated_customer = self.customer_repository.update(customer)
 
-    
         if changes:
             action_text = "Updated: " + " | ".join(changes)
-            self.db.execute(
-                text("INSERT INTO account_history (customer_id, action) VALUES (:cid, :act)"),
-                {"cid": customer_id, "act": action_text}
-            )
-            self.db.commit()
+            self.history_repository.create(customer_id=customer_id, action=action_text)
 
         return updated_customer
 
@@ -68,10 +63,5 @@ class AccountService:
         self.address_repository.delete(address)
         return True
 
-
     def get_account_history(self, customer_id: str):
-        result = self.db.execute(
-            text("SELECT action, created_at FROM account_history WHERE customer_id = :cid ORDER BY created_at DESC"),
-            {"cid": customer_id}
-        )
-        return [{"action": row[0], "created_at": row[1]} for row in result]
+        return self.history_repository.get_by_customer_id(customer_id)

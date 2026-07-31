@@ -55,3 +55,6 @@ class CustomerRead(CustomerBase):
     customer_id: str
     created_at: datetime | None = None
 
+class AccountHistoryRead(ORMModel):
+    action: str
+    created_at: datetime

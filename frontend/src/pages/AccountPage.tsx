@@ -3,13 +3,12 @@ import { Card } from "../components/Card";
 import { PageContainer } from "../components/PageContainer";
 import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/Button";
+import { accountService } from "../services/accountService"; 
 
 export function AccountPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
-
-  // 1. THÊM STATE ĐIỀU KHIỂN ẨN/HIỆN LỊCH SỬ
   const [showHistory, setShowHistory] = useState(false);
 
   const [customerData, setCustomerData] = useState({
@@ -31,56 +30,36 @@ export function AccountPage() {
       return;
     }
 
-    fetch(`http://localhost:8000/api/accounts/customers/${customerId}`)
-      .then(res => {
-        if (!res.ok) throw new Error("Failed to fetch customer profile");
-        return res.json();
-      })
-      .then(data => {
-        if (data) {
+    // Gộp tất cả các lệnh lấy dữ liệu vào một hàm async và chạy đồng thời (Promise.all)
+    const loadAccountData = async () => {
+      try {
+        const [profileData, addressData, historyData] = await Promise.all([
+          accountService.getCustomer(customerId),
+          accountService.listAddresses(customerId),
+          accountService.getHistory(customerId)
+        ]);
+
+        if (profileData) {
           setCustomerData({
-            customer_id: data.customer_id || customerId,
-            full_name: data.full_name || '',
-            email: data.email || '',
-            phone: data.phone || ''
+            customer_id: profileData.customer_id || customerId,
+            full_name: profileData.full_name || '',
+            email: profileData.email || '',
+            phone: profileData.phone || ''
           });
         }
-      })
-      .catch(err => {
-        console.error("Error fetching customer:", err);
-        setMessage('Could not load customer profile from database.');
-      });
 
-    fetch(`http://localhost:8000/api/accounts/customers/${customerId}/addresses`)
-      .then(res => {
-        if (!res.ok) throw new Error("Failed to fetch addresses");
-        return res.json();
-      })
-      .then(addrList => {
-        if (Array.isArray(addrList)) {
-          setAddresses(addrList);
-        }
+        if (Array.isArray(addressData)) setAddresses(addressData);
+        if (Array.isArray(historyData)) setHistory(historyData);
+
+      } catch (err) {
+        console.error("Error fetching account data:", err);
+        setMessage('Could not load complete account profile from database.');
+      } finally {
         setLoading(false);
-      })
-      .catch(err => {
-        console.error("Error fetching addresses:", err);
-        setLoading(false);
-      });
+      }
+    };
 
-    fetch(`http://localhost:8000/api/accounts/customers/${customerId}/history`)
-      .then(res => {
-        if (!res.ok) throw new Error("Failed to fetch history");
-        return res.json();
-      })
-      .then(historyData => {
-        if (Array.isArray(historyData)) {
-          setHistory(historyData);
-        }
-      })
-      .catch(err => {
-        console.error("Error fetching history:", err);
-      });
-
+    loadAccountData();
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -90,28 +69,19 @@ export function AccountPage() {
 
   const handleSave = async () => {
     try {
-      const response = await fetch(`http://localhost:8000/api/accounts/customers/${customerData.customer_id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          full_name: customerData.full_name,
-          email: customerData.email,
-          phone: customerData.phone
-        })
+      // 👈 SỬ DỤNG SERVICE ĐỂ CẬP NHẬT THAY VÌ FETCH PUT
+      await accountService.updateCustomer(customerData.customer_id, {
+        full_name: customerData.full_name,
+        email: customerData.email,
+        phone: customerData.phone
       });
 
-      if (response.ok) {
-        setMessage('Profile successfully updated!');
-        
-        fetch(`http://localhost:8000/api/accounts/customers/${customerData.customer_id}/history`)
-          .then(res => res.json())
-          .then(historyData => {
-            if (Array.isArray(historyData)) setHistory(historyData);
-          });
-
-      } else {
-        setMessage('Failed to update profile.');
-      }
+      setMessage('Profile successfully updated!');
+      
+      // Tải lại lịch sử mới nhất ngay sau khi cập nhật thành công
+      const updatedHistory = await accountService.getHistory(customerData.customer_id);
+      if (Array.isArray(updatedHistory)) setHistory(updatedHistory);
+      
       setIsEditing(false);
     } catch (error) {
       console.error('Error saving profile:', error);
@@ -125,20 +95,15 @@ export function AccountPage() {
     
     if (confirmDelete) {
       try {
-        const response = await fetch(`http://localhost:8000/api/accounts/customers/${customerData.customer_id}`, {
-          method: 'DELETE',
-        });
-
-        if (response.ok || response.status === 204) {
-          alert('Account deleted successfully.');
-          localStorage.clear();
-          window.location.href = '/login'; 
-        } else {
-          setMessage('Failed to delete account. Please try again.');
-        }
+        // 👈 SỬ DỤNG SERVICE ĐỂ XÓA THAY VÌ FETCH DELETE
+        await accountService.deleteCustomer(customerData.customer_id);
+        
+        alert('Account deleted successfully.');
+        localStorage.clear();
+        window.location.href = '/login'; 
       } catch (error) {
         console.error('Error deleting account:', error);
-        setMessage('Network error while attempting to delete account.');
+        setMessage('Failed to delete account. Please try again.');
       }
     }
   };
@@ -202,7 +167,7 @@ export function AccountPage() {
           </div>
         </Card>
 
-        {/* 2. CARD MỚI: ACTIVITY HISTORY VỚI NÚT TOGGLE */}
+        {/* CARD 2: ACTIVITY HISTORY VỚI NÚT TOGGLE */}
         <Card className="p-6">
           <div className="flex justify-between items-center">
             <div>
@@ -210,7 +175,6 @@ export function AccountPage() {
               <p className="text-sm text-text-secondary mt-1">Review the recent changes made to your profile.</p>
             </div>
             
-            {/* Nút bấm chuyển đổi trạng thái showHistory */}
             <Button 
               variant="secondary" 
               onClick={() => setShowHistory(!showHistory)}
@@ -219,7 +183,6 @@ export function AccountPage() {
             </Button>
           </div>
 
-          {/* Khối chứa lịch sử sẽ chỉ hiển thị khi showHistory là true */}
           {showHistory && (
             <div className="mt-6 pt-2 border-t border-border animate-in fade-in slide-in-from-top-2 duration-300">
               <div className="space-y-2">
