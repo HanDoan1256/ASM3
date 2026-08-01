@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { getDistrictsByProvinceCode, getProvinces, getWardsByDistrictCode } from "sub-vn";
 
 import { Button } from "../components/Button";
@@ -8,7 +9,6 @@ import { Input } from "../components/Input";
 import { PageContainer } from "../components/PageContainer";
 import { PageHeader } from "../components/PageHeader";
 import { Select } from "../components/Select";
-import { StatusBadge } from "../components/StatusBadge";
 import { Textarea } from "../components/Textarea";
 import { useShipmentForm } from "../hooks/useShipmentForm";
 import { orderService } from "../services/orderService";
@@ -68,11 +68,13 @@ function useVietnamLocations(selectedCityCode: string, selectedDistrictCode: str
 }
 
 export function CreateOrderPage() {
+  const navigate = useNavigate();
   const { form, reset, updateField } = useShipmentForm();
-  const [createdOrder, setCreatedOrder] = useState<ShipmentOrder | null>(null);
   const [serviceOptions, setServiceOptions] = useState<ServiceOption[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  const [pickupDate, setPickupDate] = useState("");
 
   const [senderCityCode, setSenderCityCode] = useState("");
   const [senderDistrictCode, setSenderDistrictCode] = useState("");
@@ -89,6 +91,27 @@ export function CreateOrderPage() {
   const [paymentOption, setPaymentOption] = useState<"COD" | "Cash" | "Transfer">("COD");
   const [countdown, setCountdown] = useState(15);
 
+  // Pickup Date Constraints Logic (17:00 cutoff & 3 days max limit)
+  const pickupDateLimits = useMemo(() => {
+    const now = new Date();
+    const currentHour = now.getHours();
+
+    // If created after 5 PM (17:00), min pickup date is tomorrow; otherwise today
+    const minDate = new Date(now);
+    if (currentHour >= 17) {
+      minDate.setDate(minDate.getDate() + 1);
+    }
+
+    // Max allowed pickup date is 3 days from creation time
+    const maxDate = new Date(now);
+    maxDate.setDate(maxDate.getDate() + 3);
+
+    return {
+      min: minDate.toISOString().split("T")[0],
+      max: maxDate.toISOString().split("T")[0],
+    };
+  }, []);
+
   useEffect(() => {
     if (!form.sender_phone) updateField("sender_phone", "+84 ");
     if (!form.receiver_phone) updateField("receiver_phone", "+84 ");
@@ -99,9 +122,8 @@ export function CreateOrderPage() {
       .listServiceOptions()
       .then((options) => {
         setServiceOptions(options);
-        if (options.length > 0) {
-          updateField("service_id", options[0].service_id);
-        }
+        // Reset service selection so dropdown starts unselected
+        updateField("service_id", "");
       })
       .catch(() => setServiceOptions([]));
   }, []);
@@ -117,7 +139,7 @@ export function CreateOrderPage() {
   }, [isModalOpen, paymentOption, countdown]);
 
   const selectedService = useMemo(
-    () => serviceOptions.find((option) => option.service_id === form.service_id) ?? null,
+    () => serviceOptions.find((option) => String(option.service_id) === String(form.service_id)) ?? null,
     [form.service_id, serviceOptions],
   );
 
@@ -126,17 +148,19 @@ export function CreateOrderPage() {
     [serviceOptions],
   );
 
+  // Calculate price only when service option and valid weight are entered
   const estimatedCost = useMemo(() => {
-    if (!selectedService) {
-      return "0";
-    }
-    const basePrice = selectedService.base_price;
-    const weight = form.weight || 1;
-    const extraWeight = Math.max(0, weight - 1);
-    const total = basePrice + extraWeight * 10000;
+  if (!selectedService || !form.weight || form.weight <= 0) {
+    return "0";
+  }
 
-    return Math.round(total).toLocaleString("vi-VN");
-  }, [form.weight, selectedService]);
+  // Ensure this EXACT formula matches what your Python backend assigns to total_price
+  const total = form.weight * selectedService.base_price;
+
+  return Math.round(total).toLocaleString("vi-VN");
+}, [form.weight, selectedService]);
+
+  
 
   const estimatedDelivery = useMemo(() => formatEstimatedDelivery(selectedService?.estimated_days), [selectedService]);
 
@@ -190,6 +214,7 @@ export function CreateOrderPage() {
     if (!receiverDistrictCode) return setError("Please select the Delivery District.");
     if (!receiverWard) return setError("Please select the Delivery Ward.");
 
+    if (!form.service_id) return setError("Please select a Shipping Service Type.");
     if (!form.weight || form.weight <= 0) return setError("Please enter a valid Package Weight.");
     if (!form.dimensions.trim()) return setError("Please enter Package Dimensions.");
 
@@ -197,7 +222,7 @@ export function CreateOrderPage() {
     setIsModalOpen(true);
   };
 
-  const handleFinalSubmit = async () => {
+    const handleFinalSubmit = async () => {
     setSubmitting(true);
     setError("");
 
@@ -205,12 +230,19 @@ export function CreateOrderPage() {
       const customerId = localStorage.getItem("smartfm_principal_id") || "CUST-001";
       const dimensions = parseDimensions(form.dimensions);
 
-      // Determine payment & billing status
       const billingStatus = paymentOption === "Cash" || paymentOption === "Transfer" ? "Completed" : "Pending";
+
+      // Parse calculated cost as raw number for backend (removes commas/formatting)
+      const rawShippingFee = form.weight && selectedService 
+        ? form.weight * selectedService.base_price 
+        : 0;
 
       const response = await orderService.createOrder({
         customer_id: customerId,
         service_id: form.service_id,
+        // 1. Pass calculated total / shipping fee to API so backend doesn't overwrite it
+        shipping_fee: rawShippingFee,
+        total_amount: rawShippingFee,
         sender_address: {
           receiver_name: form.sender_name,
           receiver_phone: form.sender_phone.replace(/\s+/g, ""),
@@ -236,21 +268,15 @@ export function CreateOrderPage() {
           security_level: form.notes === "High-Security" ? "High-Security" : "Standard",
         },
         notes: `Payment Method: ${paymentOption} | Billing Status: ${billingStatus}${
-          form.notes ? ` | Notes: ${form.notes}` : ""
-        }`,
+          pickupDate ? ` | Requested Pickup Date: ${pickupDate}` : ""
+        }${form.notes ? ` | Notes: ${form.notes}` : ""}`,
       });
 
-      setCreatedOrder(response);
       setIsModalOpen(false);
       reset();
-      setSenderCityCode("");
-      setSenderDistrictCode("");
-      setSenderWard("");
-      setReceiverCityCode("");
-      setReceiverDistrictCode("");
-      setReceiverWard("");
-      updateField("sender_phone", "+84 ");
-      updateField("receiver_phone", "+84 ");
+      
+      // Automatically redirect to the created order details page
+      navigate(`/orders/${response.order_id}`);
     } catch (submissionError) {
       setError(
         submissionError instanceof Error
@@ -362,16 +388,18 @@ export function CreateOrderPage() {
               onChange={(event) => setReceiverWard(event.target.value)}
             />
           </FormSection>
-
           {/* PACKAGE DETAILS SECTION */}
           <FormSection description="Define dimensions, weight, and package handling information." title="Package Details">
             <Input
               label="Weight (kg) *"
-              min="0.1"
-              step="0.1"
-              type="number"
-              value={form.weight}
-              onChange={(event) => updateField("weight", Number(event.target.value))}
+              type="text"
+              inputMode="decimal"
+              placeholder="0"
+              value={form.weight ?? 0}
+              onChange={(event) => {
+                const val = event.target.value.replace(/[^0-9.]/g, "");
+                updateField("weight", val !== "" ? Number(val) : 0);
+              }}
             />
             <Input
               label="Dimensions *"
@@ -381,10 +409,14 @@ export function CreateOrderPage() {
             />
             <Input
               label="Declared Value (VND)"
-              placeholder="e.g. 500000"
-              type="number"
-              value={form.declared_value || ""}
-              onChange={(event) => updateField("declared_value", Number(event.target.value))}
+              placeholder="0"
+              type="text"
+              inputMode="numeric"
+              value={form.declared_value ?? 0}
+              onChange={(event) => {
+                const val = event.target.value.replace(/[^0-9]/g, "");
+                updateField("declared_value", val !== "" ? Number(val) : 0);
+              }}
             />
             <Select
               label="Package Type"
@@ -404,27 +436,22 @@ export function CreateOrderPage() {
           <FormSection description="Select the service level and fulfillment priority." title="Shipping Service">
             <Select
               label="Service Type *"
-              options={serviceSelectOptions}
-              value={String(form.service_id)}
-              onChange={(event) => updateField("service_id", Number(event.target.value))}
+              options={[{ label: "-- Select Service Type --", value: "" }, ...serviceSelectOptions]}
+              value={String(form.service_id || "")}
+              onChange={(event) => updateField("service_id", event.target.value ? Number(event.target.value) : "")}
             />
-            <Input label="Requested Pickup Date" type="date" />
-            <Input label="Reference Number" placeholder="Customer PO / Job code" />
-            <Select
-              label="Special Handling"
-              options={[
-                { label: "Standard Handling", value: "Standard" },
-                { label: "Fragile", value: "Fragile" },
-                { label: "Cold Chain Freight", value: "Cold/Fresh" },
-                { label: "High-Security Document", value: "High-Security" },
-              ]}
-              value={form.notes}
-              onChange={(event) => updateField("notes", event.target.value)}
+            <Input
+              label="Requested Pickup Date"
+              max={pickupDateLimits.max}
+              min={pickupDateLimits.min}
+              type="date"
+              value={pickupDate}
+              onChange={(event) => setPickupDate(event.target.value)}
             />
           </FormSection>
         </div>
 
-        {/* SIDE PANEL SUMMARY & LIVE API RESPONSE */}
+        {/* SIDE PANEL SUMMARY */}
         <div className="space-y-4">
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-text-primary">Order Summary</h3>
@@ -435,11 +462,15 @@ export function CreateOrderPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-text-secondary">Weight</span>
-                <span className="text-sm font-semibold text-text-primary">{form.weight} kg</span>
+                <span className="text-sm font-semibold text-text-primary">
+                  {form.weight && form.weight > 0 ? `${form.weight} kg` : "-"}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-text-secondary">Shipping Fee</span>
-                <span className="text-sm font-semibold text-text-primary">₫{estimatedCost}</span>
+                <span className="text-sm font-semibold text-text-primary">
+                  {selectedService && form.weight && form.weight > 0 ? `₫${estimatedCost}` : "₫0"}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-text-secondary">Estimated Delivery</span>
@@ -453,6 +484,7 @@ export function CreateOrderPage() {
               <Button
                 onClick={() => {
                   reset();
+                  setPickupDate("");
                   setSenderCityCode("");
                   setSenderDistrictCode("");
                   setSenderWard("");
@@ -469,37 +501,6 @@ export function CreateOrderPage() {
             </div>
             {error && <p className="mt-4 text-sm font-medium text-red-600">{error}</p>}
           </Card>
-
-          <Card className="p-6">
-            <h3 className="text-lg font-semibold text-text-primary">Live API Response</h3>
-            {createdOrder ? (
-              <div className="mt-5 space-y-4">
-                <div>
-                  <p className="text-sm text-text-secondary">Order ID</p>
-                  <p className="mt-1 text-lg font-semibold text-text-primary">{createdOrder.order_id}</p>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-text-secondary">Status</span>
-                  <StatusBadge status={createdOrder.order_status} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-text-secondary">Final Price</span>
-                  <span className="text-sm font-semibold text-text-primary">
-                    ₫{createdOrder.total_price.toLocaleString("vi-VN")}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-text-secondary">Estimated Delivery Date</span>
-                  <span className="text-sm font-semibold text-text-primary">{estimatedDelivery}</span>
-                </div>
-              </div>
-            ) : (
-              <p className="mt-4 text-sm leading-7 text-text-secondary">
-                Submit the form to display the backend-generated order reference, shipping cost, estimated delivery date,
-                and current status.
-              </p>
-            )}
-          </Card>
         </div>
       </form>
 
@@ -510,7 +511,7 @@ export function CreateOrderPage() {
             <h2 className="text-xl font-bold text-gray-900">Order Confirmation & Payment</h2>
             <p className="mt-1 text-sm text-gray-500">Please review details before finalizing shipment creation.</p>
 
-            <div className="mt-4 space-y-3 border-t border-b py-3 text-sm text-gray-700">
+            <div className="mt-4 space-y-3 border-b border-t py-3 text-sm text-gray-700">
               <div>
                 <strong>Sender:</strong> {form.sender_name} ({form.sender_phone})
                 <br />

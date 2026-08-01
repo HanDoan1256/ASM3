@@ -3,27 +3,30 @@ from datetime import datetime
 from app.schemas.common import ORMModel
 
 
-class RouteBase(ORMModel):
-    origin: str
-    destination: str
-    distance: float
-    estimated_time: float | None = None
+# =================================================================
+# TRACKING HISTORY SCHEMAS
+# =================================================================
+
+class TrackingHistoryBase(ORMModel):
+    current_location: str
+    next_location: str | None = None
 
 
-class RouteCreate(RouteBase):
+class TrackingHistoryCreate(TrackingHistoryBase):
+    """Payload sent when logging a new checkpoint entry."""
     pass
 
 
-class RouteUpdate(ORMModel):
-    origin: str | None = None
-    destination: str | None = None
-    distance: float | None = None
-    estimated_time: float | None = None
+class TrackingHistoryRead(TrackingHistoryBase):
+    """Response format for timeline history entries."""
+    track_history_id: int
+    track_id: str
+    recorded_at: datetime
 
 
-class RouteRead(RouteBase):
-    route_id: int
-
+# =================================================================
+# TRACKING ROOT SCHEMAS
+# =================================================================
 
 class TrackingBase(ORMModel):
     current_location: str
@@ -41,24 +44,22 @@ class TrackingUpdate(ORMModel):
     status: str | None = None
 
 
-class TrackingRead(TrackingBase):
-    track_id: str
-
-
-class TrackingHistoryBase(ORMModel):
-    track_id: str
+class TrackingStatusUpdate(ORMModel):
+    """Schema for drivers/staff to post a status & location update."""
+    status: str
     current_location: str
     next_location: str | None = None
-    recorded_at: datetime
 
 
-class TrackingHistoryCreate(TrackingHistoryBase):
-    pass
+class TrackingRead(TrackingBase):
+    """Full tracking view, including nested checkpoint history."""
+    track_id: str
+    history: list[TrackingHistoryRead] = []
 
 
-class TrackingHistoryRead(TrackingHistoryBase):
-    track_history_id: int
-
+# =================================================================
+# SHIPMENT LINKED TRACKING SCHEMAS
+# =================================================================
 
 class ShipmentTrackingRead(ORMModel):
     shipment_id: int
@@ -70,4 +71,3 @@ class ShipmentTrackingRead(ORMModel):
     departure_time: datetime | None = None
     arrival_time: datetime | None = None
     shipment_status: str
-

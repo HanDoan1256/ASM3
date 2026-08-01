@@ -41,7 +41,7 @@ def seed():
                 service_name="Cold Chain Freight",
                 description="Temperature-controlled logistics (-18°C to 5°C) using specialized refrigerated vehicles for seafood, meat, and vaccines.",
                 base_price=170000.0,
-                estimated_days=2
+                estimated_days=1
             ),
             ServiceOption(
                 service_name="Sealed & Secure Document",

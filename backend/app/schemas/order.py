@@ -70,6 +70,7 @@ class ShipmentOrderCreate(ORMModel):
     
     package_details: PackageDetailsCreate
     notes: str | None = None
+    total_price: float | None = Field(default=None, ge=0)
 
 
 class ShipmentOrderUpdate(ORMModel):
