@@ -36,5 +36,7 @@ def list_payments(db: Session = Depends(get_db)) -> list[PaymentRead]:
 
 @router.post("", response_model=PaymentRead, status_code=status.HTTP_201_CREATED)
 def create_payment(payload: PaymentCreate, db: Session = Depends(get_db)) -> PaymentRead:
-    return PaymentService(db).create_payment(payload)
-
+    try:
+        return PaymentService(db).create_payment(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

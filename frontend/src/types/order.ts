@@ -99,3 +99,14 @@ export interface OrderCreatePayload {
   notes?: string;
 }
 
+export interface OrderEstimatePayload {
+  service_id: number;
+  weight: number;
+}
+
+export interface OrderEstimateResponse {
+  service_id: number;
+  base_price: number;
+  weight: number;
+  estimated_total: number;
+}

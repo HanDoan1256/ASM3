@@ -35,3 +35,12 @@ export interface AddressCreatePayload {
   is_default?: boolean;
 }
 
+export interface AddressUpdatePayload {
+  receiver_name?: string;
+  receiver_phone?: string;
+  street?: string;
+  district?: string;
+  city?: string;
+  postal_code?: string;
+  is_default?: boolean;
+}

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -28,7 +28,10 @@ def update_tracking_event(
     db: Session = Depends(get_db)
 ) -> TrackingRead:
     """Post a location update or status transition for an active shipment."""
-    return TrackingService(db).update_tracking(track_id, payload)
+    try:
+        return TrackingService(db).update_tracking(track_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/shipments/{shipment_id}", response_model=ShipmentRead, status_code=status.HTTP_200_OK)

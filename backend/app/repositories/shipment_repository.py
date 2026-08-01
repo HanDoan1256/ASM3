@@ -11,3 +11,6 @@ class ShipmentRepository(BaseRepository[Shipment]):
 
     def list_allocations(self) -> list[Shipment]:
         return list(self.db.scalars(select(Shipment).order_by(Shipment.shipment_id.desc())).all())
+
+    def get_by_track_id(self, track_id: str) -> Shipment | None:
+        return self.db.scalar(select(Shipment).where(Shipment.track_id == track_id))

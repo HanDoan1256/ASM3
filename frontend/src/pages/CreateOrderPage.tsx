@@ -1,6 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getDistrictsByProvinceCode, getProvinces, getWardsByDistrictCode } from "sub-vn";
 
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
@@ -12,7 +11,13 @@ import { Select } from "../components/Select";
 import { Textarea } from "../components/Textarea";
 import { useShipmentForm } from "../hooks/useShipmentForm";
 import { orderService } from "../services/orderService";
-import type { ServiceOption, ShipmentOrder } from "../types/order";
+import type { OrderEstimateResponse, ServiceOption } from "../types/order";
+import { sanitizeVietnamPhone } from "../utils/phone";
+import {
+  listVietnamDistricts,
+  listVietnamProvinces,
+  listVietnamWards,
+} from "../utils/vietnamLocations";
 
 function parseDimensions(dimensions: string) {
   const values = dimensions
@@ -33,35 +38,17 @@ function formatEstimatedDelivery(estimatedDays?: number) {
   return date.toISOString().slice(0, 10);
 }
 
-function sanitizeVietnamPhone(input: string): string {
-  const prefix = "+84 ";
-  let rawDigits = input.replace(/\D/g, "");
-  if (rawDigits.startsWith("84")) {
-    rawDigits = rawDigits.slice(2);
-  }
-  const remainingDigits = rawDigits.slice(0, 9);
-  return `${prefix}${remainingDigits}`;
-}
-
 function useVietnamLocations(selectedCityCode: string, selectedDistrictCode: string) {
   const provinces = useMemo(() => {
-    return getProvinces().map((p) => ({ label: p.name, value: p.code }));
+    return listVietnamProvinces();
   }, []);
 
   const districts = useMemo(() => {
-    if (!selectedCityCode) return [];
-    return getDistrictsByProvinceCode(selectedCityCode).map((d) => ({
-      label: d.name,
-      value: d.code,
-    }));
+    return listVietnamDistricts(selectedCityCode);
   }, [selectedCityCode]);
 
   const wards = useMemo(() => {
-    if (!selectedDistrictCode) return [];
-    return getWardsByDistrictCode(selectedDistrictCode).map((w) => ({
-      label: w.name,
-      value: w.name,
-    }));
+    return listVietnamWards(selectedDistrictCode);
   }, [selectedDistrictCode]);
 
   return { districts, provinces, wards };
@@ -90,6 +77,9 @@ export function CreateOrderPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [paymentOption, setPaymentOption] = useState<"COD" | "Cash" | "Transfer">("COD");
   const [countdown, setCountdown] = useState(15);
+  const [authoritativeEstimate, setAuthoritativeEstimate] = useState<OrderEstimateResponse | null>(null);
+  const [estimating, setEstimating] = useState(false);
+  const [estimateError, setEstimateError] = useState("");
 
   // Pickup Date Constraints Logic (17:00 cutoff & 3 days max limit)
   const pickupDateLimits = useMemo(() => {
@@ -129,7 +119,7 @@ export function CreateOrderPage() {
   }, []);
 
   useEffect(() => {
-    let timer: NodeJS.Timeout;
+    let timer: ReturnType<typeof setInterval>;
     if (isModalOpen && paymentOption === "Transfer" && countdown > 0) {
       timer = setInterval(() => {
         setCountdown((prev) => prev - 1);
@@ -148,17 +138,49 @@ export function CreateOrderPage() {
     [serviceOptions],
   );
 
-  // Calculate price only when service option and valid weight are entered
+  useEffect(() => {
+    if (!form.service_id || !form.weight || form.weight <= 0) {
+      setAuthoritativeEstimate(null);
+      setEstimateError("");
+      setEstimating(false);
+      return;
+    }
+
+    let cancelled = false;
+    setEstimating(true);
+    setEstimateError("");
+
+    orderService
+      .estimateOrder({
+        service_id: Number(form.service_id),
+        weight: form.weight,
+      })
+      .then((estimate) => {
+        if (cancelled) return;
+        setAuthoritativeEstimate(estimate);
+      })
+      .catch((err: { response?: { data?: { detail?: string } } }) => {
+        if (cancelled) return;
+        setAuthoritativeEstimate(null);
+        setEstimateError(err.response?.data?.detail || "Unable to retrieve backend shipping estimate.");
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setEstimating(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form.service_id, form.weight]);
+
   const estimatedCost = useMemo(() => {
-  if (!selectedService || !form.weight || form.weight <= 0) {
-    return "0";
-  }
-
-  // Ensure this EXACT formula matches what your Python backend assigns to total_price
-  const total = form.weight * selectedService.base_price;
-
-  return Math.round(total).toLocaleString("vi-VN");
-}, [form.weight, selectedService]);
+    if (!authoritativeEstimate) {
+      return "0";
+    }
+    return authoritativeEstimate.estimated_total.toLocaleString("vi-VN");
+  }, [authoritativeEstimate]);
 
   
 
@@ -217,6 +239,8 @@ export function CreateOrderPage() {
     if (!form.service_id) return setError("Please select a Shipping Service Type.");
     if (!form.weight || form.weight <= 0) return setError("Please enter a valid Package Weight.");
     if (!form.dimensions.trim()) return setError("Please enter Package Dimensions.");
+    if (estimating) return setError("Please wait for the backend pricing estimate to finish loading.");
+    if (!authoritativeEstimate) return setError(estimateError || "Unable to fetch an authoritative shipping estimate.");
 
     setCountdown(15);
     setIsModalOpen(true);
@@ -232,17 +256,9 @@ export function CreateOrderPage() {
 
       const billingStatus = paymentOption === "Cash" || paymentOption === "Transfer" ? "Completed" : "Pending";
 
-      // Parse calculated cost as raw number for backend (removes commas/formatting)
-      const rawShippingFee = form.weight && selectedService 
-        ? form.weight * selectedService.base_price 
-        : 0;
-
       const response = await orderService.createOrder({
         customer_id: customerId,
         service_id: form.service_id,
-        // 1. Pass calculated total / shipping fee to API so backend doesn't overwrite it
-        shipping_fee: rawShippingFee,
-        total_amount: rawShippingFee,
         sender_address: {
           receiver_name: form.sender_name,
           receiver_phone: form.sender_phone.replace(/\s+/g, ""),
@@ -469,7 +485,7 @@ export function CreateOrderPage() {
               <div className="flex items-center justify-between">
                 <span className="text-sm text-text-secondary">Shipping Fee</span>
                 <span className="text-sm font-semibold text-text-primary">
-                  {selectedService && form.weight && form.weight > 0 ? `₫${estimatedCost}` : "₫0"}
+                  {estimating ? "Calculating..." : authoritativeEstimate ? `₫${estimatedCost}` : "₫0"}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -499,6 +515,7 @@ export function CreateOrderPage() {
                 Reset
               </Button>
             </div>
+            {estimateError && <p className="mt-4 text-sm font-medium text-amber-600">{estimateError}</p>}
             {error && <p className="mt-4 text-sm font-medium text-red-600">{error}</p>}
           </Card>
         </div>
@@ -594,7 +611,7 @@ export function CreateOrderPage() {
               <div className="mt-4 rounded-lg border bg-gray-50 p-3 text-center">
                 <p className="text-xs font-bold text-gray-700">Scan QR Code via Mobile Banking</p>
                 <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=VietQR_Simulated_${estimatedCost}`}
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=VietQR_Simulated_${authoritativeEstimate?.estimated_total ?? 0}`}
                   alt="VietQR Transfer"
                   className="mx-auto my-2 rounded border"
                 />

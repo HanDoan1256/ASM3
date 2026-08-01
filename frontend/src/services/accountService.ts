@@ -1,5 +1,11 @@
 import { api } from "./api";
-import type { Address, AddressCreatePayload, Customer, CustomerUpdatePayload } from "../types/account";
+import type {
+  Address,
+  AddressCreatePayload,
+  AddressUpdatePayload,
+  Customer,
+  CustomerUpdatePayload,
+} from "../types/account";
 
 export const accountService = {
   getCustomer: async (customerId: string): Promise<Customer> => {
@@ -24,6 +30,15 @@ export const accountService = {
   createAddress: async (customerId: string, payload: AddressCreatePayload): Promise<Address> => {
     const response = await api.post(`/accounts/customers/${customerId}/addresses`, payload);
     return response.data;
+  },
+
+  updateAddress: async (addressId: number, payload: AddressUpdatePayload): Promise<Address> => {
+    const response = await api.put(`/accounts/addresses/${addressId}`, payload);
+    return response.data;
+  },
+
+  deleteAddress: async (addressId: number): Promise<void> => {
+    await api.delete(`/accounts/addresses/${addressId}`);
   },
 
   getHistory: async (customerId: string): Promise<any[]> => {

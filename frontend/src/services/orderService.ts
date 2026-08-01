@@ -1,5 +1,13 @@
 import { api } from "./api";
-import type { OrderCreatePayload, OrderDetailResponse, OrderSummary, ServiceOption, ShipmentOrder } from "../types/order";
+import type {
+  OrderCreatePayload,
+  OrderDetailResponse,
+  OrderEstimatePayload,
+  OrderEstimateResponse,
+  OrderSummary,
+  ServiceOption,
+  ShipmentOrder,
+} from "../types/order";
 
 export const orderService = {
   listServiceOptions: async (): Promise<ServiceOption[]> => {
@@ -8,6 +16,10 @@ export const orderService = {
   },
   listOrders: async (): Promise<OrderSummary[]> => {
     const response = await api.get("/orders");
+    return response.data;
+  },
+  estimateOrder: async (payload: OrderEstimatePayload): Promise<OrderEstimateResponse> => {
+    const response = await api.post("/orders/estimate", payload);
     return response.data;
   },
   createOrder: async (payload: OrderCreatePayload): Promise<ShipmentOrder> => {
@@ -19,4 +31,3 @@ export const orderService = {
     return response.data;
   },
 };
-

@@ -73,6 +73,18 @@ class ShipmentOrderCreate(ORMModel):
     total_price: float | None = Field(default=None, ge=0)
 
 
+class OrderEstimateRequest(ORMModel):
+    service_id: int
+    weight: float = Field(..., gt=0, description="Weight in kg")
+
+
+class OrderEstimateResponse(ORMModel):
+    service_id: int
+    base_price: float
+    weight: float
+    estimated_total: float
+
+
 class ShipmentOrderUpdate(ORMModel):
     service_id: int | None = None
     approved_by: str | None = None

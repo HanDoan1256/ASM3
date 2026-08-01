@@ -2,6 +2,13 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
+from app.core.statuses import (
+    ORDER_STATUSES,
+    ORDER_TRANSITIONS,
+    ensure_allowed_status,
+    ensure_valid_transition,
+    normalize_order_status,
+)
 from app.models.address import Address
 from app.models.package_details import PackageDetails
 from app.models.shipment_order import ShipmentOrder
@@ -26,6 +33,22 @@ class OrderService:
 
     def list_service_options(self):
         return self.service_option_repository.list_ordered()
+
+    def estimate_order_total(self, service_id: int, weight: float):
+        if weight <= 0:
+            raise ValueError("Weight must be greater than 0")
+
+        service_option = self.service_option_repository.get_by_id(service_id)
+        if not service_option:
+            raise ValueError("Service option not found")
+
+        estimated_total = self.pricing_service.calculate_total_for_weight(service_option, weight)
+        return {
+            "service_id": service_option.service_id,
+            "base_price": float(service_option.base_price),
+            "weight": float(weight),
+            "estimated_total": estimated_total,
+        }
 
     def list_orders(self):
         orders = self.shipment_order_repository.list_recent()
@@ -104,6 +127,16 @@ class OrderService:
         order = self.shipment_order_repository.get_by_id(order_id)
         if not order:
             return None
-        for field, value in payload.model_dump(exclude_none=True).items():
+
+        update_data = payload.model_dump(exclude_none=True)
+        next_status = update_data.get("order_status")
+        if next_status is not None:
+            normalized_current = normalize_order_status(order.order_status)
+            normalized_next = normalize_order_status(next_status)
+            ensure_allowed_status("order", normalized_next, ORDER_STATUSES)
+            ensure_valid_transition("order", normalized_current, normalized_next, ORDER_TRANSITIONS)
+            update_data["order_status"] = normalized_next
+
+        for field, value in update_data.items():
             setattr(order, field, value)
         return self.shipment_order_repository.update(order)
