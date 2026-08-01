@@ -5,7 +5,25 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
 from app.database.session import Base
-from app.models import  driver, payment, shipment, user, vehicle  # noqa: F401
+from app.models import (  # noqa: F401
+    account_history,
+    address,
+    branch,
+    customer,
+    driver,
+    invoice,
+    package_details,
+    payment,
+    report,
+    route,
+    service_option,
+    shipment,
+    shipment_order,
+    staff,
+    tracking,
+    tracking_history,
+    vehicle,
+)
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

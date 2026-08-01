@@ -11,6 +11,7 @@ import { Select } from "../components/Select";
 import { Textarea } from "../components/Textarea";
 import { useShipmentForm } from "../hooks/useShipmentForm";
 import { orderService } from "../services/orderService";
+import { paymentService } from "../services/paymentService";
 import type { OrderEstimateResponse, ServiceOption } from "../types/order";
 import { sanitizeVietnamPhone } from "../utils/phone";
 import {
@@ -75,11 +76,14 @@ export function CreateOrderPage() {
   const receiverLocations = useVietnamLocations(receiverCityCode, receiverDistrictCode);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [paymentOption, setPaymentOption] = useState<"COD" | "Cash" | "Transfer">("COD");
+  const [paymentOption, setPaymentOption] = useState<"SENDER_COD" | "RECEIVER_COD" | "SENDER_TRANSFER">("SENDER_COD");
   const [countdown, setCountdown] = useState(15);
   const [authoritativeEstimate, setAuthoritativeEstimate] = useState<OrderEstimateResponse | null>(null);
   const [estimating, setEstimating] = useState(false);
   const [estimateError, setEstimateError] = useState("");
+  const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
+  const [invoiceId, setInvoiceId] = useState<number | null>(null);
+  const [confirmingTransfer, setConfirmingTransfer] = useState(false);
 
   // Pickup Date Constraints Logic (17:00 cutoff & 3 days max limit)
   const pickupDateLimits = useMemo(() => {
@@ -107,6 +111,16 @@ export function CreateOrderPage() {
     if (!form.receiver_phone) updateField("receiver_phone", "+84 ");
   }, []);
 
+  // Order creation requires an authenticated customer identity; the backend rejects
+  // (and overrides) any spoofed customer_id, so an unauthenticated user cannot proceed.
+  useEffect(() => {
+    const principalId = localStorage.getItem("smartfm_principal_id");
+    const token = localStorage.getItem("smartfm_access_token");
+    if (!principalId || !token) {
+      navigate("/login");
+    }
+  }, [navigate]);
+
   useEffect(() => {
     orderService
       .listServiceOptions()
@@ -120,7 +134,7 @@ export function CreateOrderPage() {
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval>;
-    if (isModalOpen && paymentOption === "Transfer" && countdown > 0) {
+    if (isModalOpen && paymentOption === "SENDER_TRANSFER" && countdown > 0) {
       timer = setInterval(() => {
         setCountdown((prev) => prev - 1);
       }, 1000);
@@ -243,6 +257,8 @@ export function CreateOrderPage() {
     if (!authoritativeEstimate) return setError(estimateError || "Unable to fetch an authoritative shipping estimate.");
 
     setCountdown(15);
+    setCreatedOrderId(null);
+    setInvoiceId(null);
     setIsModalOpen(true);
   };
 
@@ -251,10 +267,14 @@ export function CreateOrderPage() {
     setError("");
 
     try {
-      const customerId = localStorage.getItem("smartfm_principal_id") || "CUST-001";
+      const customerId = localStorage.getItem("smartfm_principal_id");
+      if (!customerId) {
+        setError("You must be logged in to create an order.");
+        setIsModalOpen(false);
+        navigate("/login");
+        return;
+      }
       const dimensions = parseDimensions(form.dimensions);
-
-      const billingStatus = paymentOption === "Cash" || paymentOption === "Transfer" ? "Completed" : "Pending";
 
       const response = await orderService.createOrder({
         customer_id: customerId,
@@ -283,15 +303,26 @@ export function CreateOrderPage() {
           fragile: form.notes === "Fragile",
           security_level: form.notes === "High-Security" ? "High-Security" : "Standard",
         },
-        notes: `Payment Method: ${paymentOption} | Billing Status: ${billingStatus}${
-          pickupDate ? ` | Requested Pickup Date: ${pickupDate}` : ""
-        }${form.notes ? ` | Notes: ${form.notes}` : ""}`,
+        payment_method: paymentOption,
+        notes: `${pickupDate ? `Requested Pickup Date: ${pickupDate}` : ""}${
+          form.notes ? ` | Notes: ${form.notes}` : ""
+        }`,
       });
+
+      // COD orders (sender or receiver pays on delivery) have nothing further to
+      // confirm right now; navigate straight to the order detail page. Bank transfer
+      // orders need an explicit payment confirmation step before the invoice can be
+      // marked Completed - the backend never fabricates a "Completed" state for us.
+      if (paymentOption === "SENDER_TRANSFER") {
+        const invoice = await orderService.getOrderById(response.order_id);
+        setCreatedOrderId(response.order_id);
+        setInvoiceId(invoice.invoice?.invoice_id ?? null);
+        setSubmitting(false);
+        return;
+      }
 
       setIsModalOpen(false);
       reset();
-      
-      // Automatically redirect to the created order details page
       navigate(`/orders/${response.order_id}`);
     } catch (submissionError) {
       setError(
@@ -302,6 +333,32 @@ export function CreateOrderPage() {
       setIsModalOpen(false);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleConfirmTransfer = async () => {
+    if (!invoiceId || !createdOrderId) return;
+    setConfirmingTransfer(true);
+    setError("");
+    try {
+      await paymentService.confirmPayment({
+        invoice_id: invoiceId,
+        payment_method: "SENDER_TRANSFER",
+        payment_date: new Date().toISOString(),
+        amount: authoritativeEstimate?.estimated_total ?? 0,
+        status: "Completed",
+      });
+      setIsModalOpen(false);
+      reset();
+      navigate(`/orders/${createdOrderId}`);
+    } catch (confirmError) {
+      setError(
+        confirmError instanceof Error
+          ? confirmError.message
+          : "Payment confirmation failed. Please try again.",
+      );
+    } finally {
+      setConfirmingTransfer(false);
     }
   };
 
@@ -563,10 +620,10 @@ export function CreateOrderPage() {
                   <strong>Billing Status:</strong>{" "}
                   <span
                     className={`font-semibold ${
-                      paymentOption === "COD" ? "text-amber-600" : "text-green-600"
+                      paymentOption === "SENDER_TRANSFER" ? "text-green-600" : "text-amber-600"
                     }`}
                   >
-                    {paymentOption === "COD" ? "Pending (COD)" : "Completed"}
+                    {paymentOption === "SENDER_TRANSFER" ? "Requires Payment Confirmation" : "Pending (Collect on Delivery)"}
                   </span>
                 </div>
               </div>
@@ -578,27 +635,27 @@ export function CreateOrderPage() {
               <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
-                  onClick={() => setPaymentOption("COD")}
+                  onClick={() => setPaymentOption("SENDER_COD")}
                   className={`rounded border p-2 text-xs font-semibold ${
-                    paymentOption === "COD" ? "border-blue-600 bg-blue-50 text-blue-600" : "bg-gray-50"
+                    paymentOption === "SENDER_COD" ? "border-blue-600 bg-blue-50 text-blue-600" : "bg-gray-50"
                   }`}
                 >
-                  Ship COD
+                  Sender Pays (COD)
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPaymentOption("Cash")}
+                  onClick={() => setPaymentOption("RECEIVER_COD")}
                   className={`rounded border p-2 text-xs font-semibold ${
-                    paymentOption === "Cash" ? "border-blue-600 bg-blue-50 text-blue-600" : "bg-gray-50"
+                    paymentOption === "RECEIVER_COD" ? "border-blue-600 bg-blue-50 text-blue-600" : "bg-gray-50"
                   }`}
                 >
-                  Sender Cash
+                  Receiver Pays (COD)
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPaymentOption("Transfer")}
+                  onClick={() => setPaymentOption("SENDER_TRANSFER")}
                   className={`rounded border p-2 text-xs font-semibold ${
-                    paymentOption === "Transfer" ? "border-blue-600 bg-blue-50 text-blue-600" : "bg-gray-50"
+                    paymentOption === "SENDER_TRANSFER" ? "border-blue-600 bg-blue-50 text-blue-600" : "bg-gray-50"
                   }`}
                 >
                   Bank Transfer
@@ -607,7 +664,7 @@ export function CreateOrderPage() {
             </div>
 
             {/* SIMULATED BANK TRANSFER QR CODE DISPLAY */}
-            {paymentOption === "Transfer" && (
+            {paymentOption === "SENDER_TRANSFER" && (
               <div className="mt-4 rounded-lg border bg-gray-50 p-3 text-center">
                 <p className="text-xs font-bold text-gray-700">Scan QR Code via Mobile Banking</p>
                 <img
@@ -615,9 +672,15 @@ export function CreateOrderPage() {
                   alt="VietQR Transfer"
                   className="mx-auto my-2 rounded border"
                 />
-                <p className="text-xs font-semibold text-red-500">
-                  Session expires in: <span className="text-sm font-bold">{countdown}s</span>
-                </p>
+                {!createdOrderId ? (
+                  <p className="text-xs font-semibold text-red-500">
+                    Session expires in: <span className="text-sm font-bold">{countdown}s</span>
+                  </p>
+                ) : (
+                  <p className="text-xs font-semibold text-green-600">
+                    Order created. Click "Confirm Payment" once the transfer is complete.
+                  </p>
+                )}
               </div>
             )}
 
@@ -625,9 +688,15 @@ export function CreateOrderPage() {
               <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
                 Cancel
               </Button>
-              <Button disabled={submitting} onClick={handleFinalSubmit}>
-                {submitting ? "Processing..." : "Confirm & Submit"}
-              </Button>
+              {paymentOption === "SENDER_TRANSFER" && createdOrderId ? (
+                <Button disabled={confirmingTransfer} onClick={handleConfirmTransfer}>
+                  {confirmingTransfer ? "Confirming..." : "Confirm Payment"}
+                </Button>
+              ) : (
+                <Button disabled={submitting} onClick={handleFinalSubmit}>
+                  {submitting ? "Processing..." : "Confirm & Submit"}
+                </Button>
+              )}
             </div>
           </div>
         </div>

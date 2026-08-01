@@ -9,73 +9,78 @@ import { Table } from "../components/Table";
 import { reportService } from "../services/reportService";
 import type { DashboardOverview, ReportRecord } from "../types/report";
 
+const REPORT_TYPES = [
+  { label: "Order Summary", value: "order_summary" },
+  { label: "Shipment Status", value: "shipment_status" },
+  { label: "Revenue", value: "revenue" },
+  { label: "Fleet Utilization", value: "fleet_utilization" },
+];
+
 export function ReportsPage() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [reports, setReports] = useState<ReportRecord[]>([]);
+  const [generating, setGenerating] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  const refreshReports = () => {
+    reportService.listReports().then(setReports).catch(() => setReports([]));
+  };
 
   useEffect(() => {
     reportService.getDashboardOverview().then(setOverview).catch(() => setOverview(null));
-    reportService.listReports().then(setReports).catch(() => setReports([]));
+    refreshReports();
   }, []);
+
+  const handleGenerate = async (reportType: string) => {
+    setGenerating(reportType);
+    setError("");
+    try {
+      await reportService.generateReport(reportType);
+      refreshReports();
+    } catch (err) {
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        "Report generation failed.";
+      setError(detail);
+    } finally {
+      setGenerating(null);
+    }
+  };
 
   return (
     <PageContainer>
       <PageHeader
-        actions={[{ icon: "download", label: "Export", variant: "primary" }]}
         eyebrow="Reports"
-        description="Review logistics performance with responsive reporting cards, visual summaries, and recent order reporting data."
+        description="Generate real, database-backed reports covering orders, shipments, revenue, and fleet utilization."
         title="Reports"
       />
 
       <div className="grid gap-4 md:grid-cols-4">
         <StatCard icon="monitoring" label="Orders Processed" note="Current total order count" value={String(overview?.total_orders ?? 0)} />
-        <StatCard icon="payments" label="Revenue" note="Recognized payments" value={`$${(overview?.revenue ?? 0).toFixed(2)}`} />
+        <StatCard icon="payments" label="Revenue" note="Recognized payments" value={`₫${(overview?.revenue ?? 0).toLocaleString("vi-VN")}`} />
         <StatCard icon="schedule" label="Active Shipments" note="Current shipment execution load" value={String(overview?.active_shipments ?? 0)} />
         <StatCard icon="verified" label="Fleet Available" note="Vehicles ready for allocation" value={String(overview?.fleet_available ?? 0)} />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_0.95fr]">
-        <Card className="p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-2xl font-semibold text-text-primary">Bar Chart</h3>
-              <p className="mt-1 text-sm text-text-secondary">Monthly shipment output by operational lane</p>
-            </div>
-            <Button variant="ghost">Quarterly</Button>
-          </div>
-          <div className="mt-8 flex h-[260px] items-end gap-4">
-            {[58, 72, 64, 88, 96, 104].map((value, index) => (
-              <div key={index} className="flex flex-1 flex-col items-center gap-3">
-                <div className="w-full rounded-t-3xl bg-brand-100">
-                  <div className="rounded-t-3xl bg-brand-500" style={{ height: `${value * 1.8}px` }} />
-                </div>
-                <span className="text-sm text-text-secondary">Q{index + 1}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        <Card className="p-6">
-          <h3 className="text-2xl font-semibold text-text-primary">Pie Chart</h3>
-          <p className="mt-1 text-sm text-text-secondary">Service mix breakdown</p>
-          <div className="mt-8 flex flex-col items-center gap-6">
-            <div className="h-56 w-56 rounded-full bg-[conic-gradient(#0058BE_0_44%,#7db3f4_44%_71%,#f59e0b_71%_88%,#16a34a_88%_100%)]" />
-            <div className="grid w-full gap-3 sm:grid-cols-2">
-              {[
-                ["Express", "44%"],
-                ["Standard", "27%"],
-                ["Same Day", "17%"],
-                ["Special Handling", "12%"],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl bg-brand-50 px-4 py-3">
-                  <p className="text-sm text-text-secondary">{label}</p>
-                  <p className="mt-1 font-semibold text-text-primary">{value}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Card>
-      </div>
+      <Card className="p-6">
+        <h3 className="text-2xl font-semibold text-text-primary">Generate Report</h3>
+        <p className="mt-1 text-sm text-text-secondary">
+          Produces a fresh, database-backed snapshot for the selected report type.
+        </p>
+        <div className="mt-5 flex flex-wrap gap-2">
+          {REPORT_TYPES.map((type) => (
+            <Button
+              disabled={generating === type.value}
+              key={type.value}
+              onClick={() => handleGenerate(type.value)}
+              variant="secondary"
+            >
+              {generating === type.value ? "Generating..." : type.label}
+            </Button>
+          ))}
+        </div>
+        {error && <p className="mt-3 text-sm font-medium text-red-600">{error}</p>}
+      </Card>
 
       <Table
         columns={[
@@ -83,6 +88,14 @@ export function ReportsPage() {
           { header: "Type", render: (row) => row.report_type },
           { header: "Generated By", render: (row) => row.generated_by ?? "-" },
           { header: "Generated At", render: (row) => new Date(row.generated_at).toISOString().slice(0, 10) },
+          {
+            header: "Content",
+            render: (row) => (
+              <pre className="max-w-xs overflow-x-auto whitespace-pre-wrap text-xs text-text-secondary">
+                {row.content ?? "-"}
+              </pre>
+            ),
+          },
         ]}
         data={reports}
       />

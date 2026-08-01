@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import Field
 from app.schemas.account import AddressCreate, AddressRead
 from app.schemas.common import ORMModel
+from app.schemas.payment import InvoiceRead
 from app.schemas.service_option import ServiceOptionRead
 
 
@@ -71,6 +72,7 @@ class ShipmentOrderCreate(ORMModel):
     package_details: PackageDetailsCreate
     notes: str | None = None
     total_price: float | None = Field(default=None, ge=0)
+    payment_method: str
 
 
 class OrderEstimateRequest(ORMModel):
@@ -115,3 +117,9 @@ class ShipmentOrderResponse(ORMModel):
     sender_address: AddressRead | None = None
     receiver_address: AddressRead | None = None
     package_details: PackageDetailsRead | None = None
+    invoice: InvoiceRead | None = None
+
+
+class OrderApproveResponse(ORMModel):
+    order: ShipmentOrderRead
+    shipment_id: int

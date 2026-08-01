@@ -18,6 +18,7 @@ from app.core.statuses import (
     normalize_shipment_status,
     normalize_tracking_status,
 )
+from app.models.tracking_history import TrackingHistory
 from app.repositories.driver_repository import DriverRepository
 from app.repositories.shipment_order_repository import ShipmentOrderRepository
 from app.repositories.shipment_repository import ShipmentRepository
@@ -74,9 +75,11 @@ class TrackingService:
 
         # 2. Append new event entry in tracking history
         self.tracking_history_repository.create(
-            track_id=track_id,
-            current_location=payload.current_location,
-            next_location=payload.next_location
+            TrackingHistory(
+                track_id=track_id,
+                current_location=payload.current_location,
+                next_location=payload.next_location,
+            )
         )
 
         # 3. Synchronize status across linked Shipment and ShipmentOrder

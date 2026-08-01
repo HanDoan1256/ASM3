@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
@@ -16,14 +16,6 @@ import { reportService } from "../services/reportService";
 import type { OrderSummary } from "../types/order";
 import type { DashboardOverview } from "../types/report";
 
-const monthlyOrders = [42, 55, 49, 68, 74, 88];
-const statusSplit = [
-  { label: "In Transit", value: "44%" },
-  { label: "Pending", value: "28%" },
-  { label: "Delivered", value: "21%" },
-  { label: "Cancelled", value: "7%" },
-];
-
 export function DashboardPage() {
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
@@ -32,6 +24,48 @@ export function DashboardPage() {
     orderService.listOrders().then(setOrders).catch(() => setOrders([]));
     reportService.getDashboardOverview().then(setOverview).catch(() => setOverview(null));
   }, []);
+
+  // Derived from real order data rather than hardcoded sample values.
+  const monthlyOrders = useMemo(() => {
+    const now = new Date();
+    const buckets: { label: string; value: number }[] = [];
+    for (let i = 5; i >= 0; i -= 1) {
+      const month = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      buckets.push({ label: `${month.getMonth() + 1}/${month.getFullYear().toString().slice(2)}`, value: 0 });
+    }
+    orders.forEach((order) => {
+      const created = new Date(order.created_at);
+      const monthsAgo =
+        (now.getFullYear() - created.getFullYear()) * 12 + (now.getMonth() - created.getMonth());
+      if (monthsAgo >= 0 && monthsAgo <= 5) {
+        buckets[5 - monthsAgo].value += 1;
+      }
+    });
+    return buckets;
+  }, [orders]);
+
+  const statusSplit = useMemo(() => {
+    if (orders.length === 0) {
+      return [];
+    }
+    const counts = new Map<string, number>();
+    orders.forEach((order) => counts.set(order.order_status, (counts.get(order.order_status) ?? 0) + 1));
+    return Array.from(counts.entries()).map(([label, count]) => ({
+      label,
+      value: `${Math.round((count / orders.length) * 100)}%`,
+    }));
+  }, [orders]);
+
+  const recentActivity = useMemo(
+    () =>
+      orders.slice(0, 3).map((order) => ({
+        active: true,
+        description: `${order.customer_name} - ${order.service_name ?? "Service"} - ₫${order.total_price.toLocaleString("vi-VN")}`,
+        time: new Date(order.created_at).toLocaleString(),
+        title: `Order ${order.order_id}: ${order.order_status}`,
+      })),
+    [orders],
+  );
 
   return (
     <PageContainer>
@@ -64,7 +98,7 @@ export function DashboardPage() {
           icon="payments"
           label="Revenue"
           note="Recognized payment total"
-          value={`$${(overview?.revenue ?? 0).toFixed(2)}`}
+          value={`₫${(overview?.revenue ?? 0).toLocaleString("vi-VN")}`}
         />
       </div>
 
@@ -79,12 +113,15 @@ export function DashboardPage() {
           </div>
 
           <div className="flex h-[250px] items-end gap-4">
-            {monthlyOrders.map((value, index) => (
+            {monthlyOrders.map((bucket, index) => (
               <div key={index} className="flex flex-1 flex-col items-center gap-3">
                 <div className="w-full rounded-t-3xl bg-brand-100 p-1">
-                  <div className="rounded-t-3xl bg-brand-500 transition hover:bg-brand-700" style={{ height: `${value * 2}px` }} />
+                  <div
+                    className="rounded-t-3xl bg-brand-500 transition hover:bg-brand-700"
+                    style={{ height: `${Math.max(bucket.value * 20, 4)}px` }}
+                  />
                 </div>
-                <span className="text-sm text-text-secondary">M{index + 1}</span>
+                <span className="text-sm text-text-secondary">{bucket.label}</span>
               </div>
             ))}
           </div>
@@ -94,15 +131,19 @@ export function DashboardPage() {
           <h3 className="text-2xl font-semibold text-text-primary">Shipment Status</h3>
           <p className="mt-1 text-sm text-text-secondary">Current operational distribution</p>
           <div className="mt-8 grid gap-4">
-            {statusSplit.map((item) => (
-              <div key={item.label} className="flex items-center justify-between rounded-2xl bg-brand-50 px-4 py-4">
-                <div className="flex items-center gap-3">
-                  <div className="h-3 w-3 rounded-full bg-brand-500" />
-                  <span className="text-sm font-medium text-text-primary">{item.label}</span>
+            {statusSplit.length > 0 ? (
+              statusSplit.map((item) => (
+                <div key={item.label} className="flex items-center justify-between rounded-2xl bg-brand-50 px-4 py-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-3 w-3 rounded-full bg-brand-500" />
+                    <span className="text-sm font-medium text-text-primary">{item.label}</span>
+                  </div>
+                  <span className="text-sm font-semibold text-text-primary">{item.value}</span>
                 </div>
-                <span className="text-sm font-semibold text-text-primary">{item.value}</span>
-              </div>
-            ))}
+              ))
+            ) : (
+              <p className="text-sm text-text-secondary">No orders yet.</p>
+            )}
           </div>
         </Card>
       </div>
@@ -137,26 +178,11 @@ export function DashboardPage() {
             </div>
             <Icon className="text-brand-500" name="history" />
           </div>
-          <Timeline
-            items={[
-              {
-                active: true,
-                description: "Shipment SFM-20260726-4821 left the regional sorting hub.",
-                time: "Jul 26, 2026 08:40",
-                title: "In Transit",
-              },
-              {
-                description: "Vehicle V-204 and driver assignment confirmed.",
-                time: "Jul 26, 2026 07:15",
-                title: "Vehicle Assigned",
-              },
-              {
-                description: "Payment verified and warehouse pick-up prepared.",
-                time: "Jul 25, 2026 17:25",
-                title: "Order Confirmed",
-              },
-            ]}
-          />
+          {recentActivity.length > 0 ? (
+            <Timeline items={recentActivity} />
+          ) : (
+            <p className="text-sm text-text-secondary">No recent activity yet.</p>
+          )}
         </Card>
       </div>
 

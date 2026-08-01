@@ -57,6 +57,7 @@ export function Navbar({ onMenuToggle }: NavbarProps) {
     localStorage.removeItem("smartfm_principal_id");
     localStorage.removeItem("smartfm_principal_type");
     localStorage.removeItem("smartfm_principal_role");
+    localStorage.removeItem("smartfm_access_token");
     navigate("/login");
   };
 

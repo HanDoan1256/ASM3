@@ -30,4 +30,8 @@ export const orderService = {
     const response = await api.get(`/orders/${orderId}`);
     return response.data;
   },
+  approveOrder: async (orderId: string): Promise<{ order: ShipmentOrder; shipment_id: number }> => {
+    const response = await api.post(`/orders/${orderId}/approve`);
+    return response.data;
+  },
 };

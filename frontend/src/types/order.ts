@@ -1,4 +1,7 @@
 import type { Address, AddressCreatePayload } from "./account";
+import type { Invoice } from "./payment";
+
+export type PaymentMethod = "SENDER_COD" | "RECEIVER_COD" | "SENDER_TRANSFER";
 
 export interface ServiceOption {
   service_id: number;
@@ -67,6 +70,7 @@ export interface OrderDetailResponse {
   sender_address?: Address | null;
   receiver_address?: Address | null;
   package_details?: PackageDetails | null;
+  invoice?: Invoice | null;
 }
 
 export interface OrderFormState {
@@ -93,10 +97,13 @@ export interface OrderFormState {
 export interface OrderCreatePayload {
   customer_id: string;
   service_id: number;
-  sender_address: AddressCreatePayload;
-  receiver_address: AddressCreatePayload;
+  sender_address?: AddressCreatePayload;
+  sender_address_id?: number;
+  receiver_address?: AddressCreatePayload;
+  receiver_address_id?: number;
   package_details: PackageDetailsCreatePayload;
   notes?: string;
+  payment_method: PaymentMethod;
 }
 
 export interface OrderEstimatePayload {

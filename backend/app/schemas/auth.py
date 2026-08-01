@@ -19,4 +19,6 @@ class LoginResponse(BaseModel):
     principal_type: str
     email: EmailStr
     role: str
+    access_token: str
+    token_type: str = "bearer"
 

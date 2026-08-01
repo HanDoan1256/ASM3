@@ -24,6 +24,17 @@ RESOURCE_AVAILABLE = "Available"
 RESOURCE_ASSIGNED = "Assigned"
 RESOURCE_IN_TRANSIT = "In Transit"
 
+# Payment responsibility/method chosen by the customer during order creation.
+PAYMENT_METHOD_SENDER_COD = "SENDER_COD"
+PAYMENT_METHOD_RECEIVER_COD = "RECEIVER_COD"
+PAYMENT_METHOD_SENDER_TRANSFER = "SENDER_TRANSFER"
+
+PAYMENT_METHODS = {
+    PAYMENT_METHOD_SENDER_COD,
+    PAYMENT_METHOD_RECEIVER_COD,
+    PAYMENT_METHOD_SENDER_TRANSFER,
+}
+
 ORDER_STATUSES = {
     ORDER_PENDING,
     ORDER_APPROVED,
@@ -54,6 +65,10 @@ RESOURCE_STATUSES = {
     RESOURCE_ASSIGNED,
     RESOURCE_IN_TRANSIT,
 }
+
+# Invoice status reuses the payment status vocabulary: an invoice starts Pending
+# and becomes Completed once a payment is confirmed (or Cancelled if the order is cancelled).
+INVOICE_STATUSES = set(PAYMENT_STATUSES)
 
 ORDER_TRANSITIONS: dict[str, set[str]] = {
     ORDER_PENDING: {ORDER_APPROVED, ORDER_CANCELLED},

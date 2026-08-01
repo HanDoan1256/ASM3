@@ -3,7 +3,8 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.core.statuses import (
-    PAYMENT_PENDING,
+    PAYMENT_COMPLETED,
+    PAYMENT_METHODS,
     PAYMENT_STATUSES,
     PAYMENT_TRANSITIONS,
     ensure_allowed_status,
@@ -34,15 +35,35 @@ class PaymentService:
         return self.payment_repository.list_recent()
 
     def create_payment(self, payload: PaymentCreate):
-        normalized_status = normalize_payment_status(payload.status) or PAYMENT_PENDING
+        """Confirm a payment against an existing invoice.
+
+        Validates: invoice exists, invoice is not already Completed (rejects a
+        duplicate confirmation), the payment method is a recognized value, and the
+        submitted amount matches the invoice total (prevents partial/incorrect
+        confirmations from silently completing an invoice).
+        """
+        invoice = self.invoice_repository.get_by_id(payload.invoice_id)
+        if not invoice:
+            raise ValueError("Invoice not found")
+
+        if payload.payment_method not in PAYMENT_METHODS and payload.payment_method not in {"Cash", "Transfer", "COD"}:
+            raise ValueError(f"Invalid payment method '{payload.payment_method}'.")
+
+        if round(float(payload.amount), 2) != round(float(invoice.total), 2):
+            raise ValueError(f"Payment amount {payload.amount} does not match invoice total {invoice.total}.")
+
+        normalized_status = normalize_payment_status(payload.status) or PAYMENT_COMPLETED
         ensure_allowed_status("payment", normalized_status, PAYMENT_STATUSES)
 
-        invoice = self.invoice_repository.get_by_id(payload.invoice_id)
-        if invoice:
-            current_invoice_status = normalize_payment_status(invoice.status)
-            ensure_valid_transition("payment", current_invoice_status, normalized_status, PAYMENT_TRANSITIONS)
-            invoice.status = normalized_status
-            self.invoice_repository.update(invoice)
+        current_invoice_status = normalize_payment_status(invoice.status)
+        if current_invoice_status == PAYMENT_COMPLETED:
+            # Reject duplicate confirmation outright rather than treating "already
+            # Completed -> Completed" as an idempotent no-op.
+            raise ValueError(f"Invoice '{payload.invoice_id}' has already been paid.")
+        ensure_valid_transition("payment", current_invoice_status, normalized_status, PAYMENT_TRANSITIONS)
+
+        invoice.status = normalized_status
+        self.invoice_repository.update(invoice)
 
         payment = Payment(
             invoice_id=payload.invoice_id,

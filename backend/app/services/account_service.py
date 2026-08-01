@@ -56,6 +56,9 @@ class AccountService:
             setattr(address, field, value)
         return self.address_repository.update(address)
 
+    def get_address(self, address_id: int):
+        return self.address_repository.get_by_id(address_id)
+
     def delete_address(self, address_id: int) -> bool:
         address = self.address_repository.get_by_id(address_id)
         if not address:

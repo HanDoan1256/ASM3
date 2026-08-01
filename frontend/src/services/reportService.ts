@@ -10,4 +10,8 @@ export const reportService = {
     const response = await api.get("/reports");
     return response.data;
   },
+  generateReport: async (reportType: string): Promise<ReportRecord> => {
+    const response = await api.get(`/reports/${reportType}`);
+    return response.data;
+  },
 };

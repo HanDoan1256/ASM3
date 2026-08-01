@@ -18,5 +18,13 @@ export const fleetService = {
     const response = await api.get("/fleet/allocations");
     return response.data;
   },
+  updateVehicle: async (vehicleId: string, payload: Partial<Vehicle>): Promise<Vehicle> => {
+    const response = await api.put(`/fleet/vehicles/${vehicleId}`, payload);
+    return response.data;
+  },
+  allocateOrder: async (orderId: string): Promise<{ message: string }> => {
+    const response = await api.post(`/fleet/orders/${orderId}/allocate`);
+    return response.data;
+  },
 };
 

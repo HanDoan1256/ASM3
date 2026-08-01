@@ -5,11 +5,12 @@ from app.repositories.customer_repository import CustomerRepository
 from app.repositories.staff_repository import StaffRepository
 from app.schemas.auth import CustomerRegisterRequest, LoginRequest, LoginResponse
 from app.utils.identifiers import build_identifier
-from app.utils.security import hash_password, verify_password
+from app.utils.security import create_access_token, hash_password, needs_rehash, verify_password
 
 
 class AuthService:
     def __init__(self, db: Session) -> None:
+        self.db = db
         self.customer_repository = CustomerRepository(db)
         self.staff_repository = StaffRepository(db)
 
@@ -28,6 +29,12 @@ class AuthService:
         )
         return self.customer_repository.create(customer)
 
+    def _upgrade_hash_if_needed(self, entity, password: str) -> None:
+        """Transparently upgrade legacy SHA-256 hashes to bcrypt after a successful login."""
+        if needs_rehash(entity.password_hash):
+            entity.password_hash = hash_password(password)
+            self.db.commit()
+
     def login(self, payload: LoginRequest) -> LoginResponse | None:
         customer = self.customer_repository.get_by_email(payload.email)
         # Soft-deleted accounts must not be able to log back in
@@ -35,22 +42,28 @@ class AuthService:
             return None
 
         if customer and verify_password(payload.password, customer.password_hash):
+            self._upgrade_hash_if_needed(customer, payload.password)
+            token = create_access_token(customer.customer_id, "customer", "customer")
             return LoginResponse(
                 message="Login successful",
                 principal_id=customer.customer_id,
                 principal_type="customer",
                 email=customer.email,
                 role="customer",
+                access_token=token,
             )
 
         staff = self.staff_repository.get_by_email(payload.email)
         if staff and verify_password(payload.password, staff.password_hash):
+            self._upgrade_hash_if_needed(staff, payload.password)
+            token = create_access_token(staff.staff_id, "staff", staff.role)
             return LoginResponse(
                 message="Login successful",
                 principal_id=staff.staff_id,
                 principal_type="staff",
                 email=staff.email,
                 role=staff.role,
+                access_token=token,
             )
 
         return None

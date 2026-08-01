@@ -13,6 +13,8 @@ import type { Allocation } from "../types/fleet";
 import type { OrderDetailResponse } from "../types/order";
 import type { ShipmentRecord, TrackingHistoryItem, TrackingRecord } from "../types/tracking";
 
+const TRACKING_STATUS_OPTIONS = ["Created", "Assigned", "Picked Up", "In Transit", "Delivered"];
+
 export function ShipmentTrackingPage() {
   const [searchCode, setSearchCode] = useState<string>("");
   const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
@@ -23,6 +25,12 @@ export function ShipmentTrackingPage() {
   const [orderDetails, setOrderDetails] = useState<OrderDetailResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [eventStatus, setEventStatus] = useState<string>(TRACKING_STATUS_OPTIONS[0]);
+  const [eventLocation, setEventLocation] = useState<string>("");
+  const [eventNextLocation, setEventNextLocation] = useState<string>("");
+  const [eventSubmitting, setEventSubmitting] = useState<boolean>(false);
+  const [eventError, setEventError] = useState<string | null>(null);
+  const isStaff = localStorage.getItem("smartfm_principal_type") === "staff";
 
   // Initial load: Fetch default allocation if no manual search code is active
   useEffect(() => {
@@ -79,6 +87,31 @@ export function ShipmentTrackingPage() {
     if (!trimmed) return;
 
     setActiveTrackId(trimmed);
+  };
+
+  // Staff-only: post a new tracking event for the active track ID.
+  const handleAddEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeTrackId || !eventLocation.trim()) return;
+
+    setEventSubmitting(true);
+    setEventError(null);
+    try {
+      const updated = await trackingService.updateTrackingEvent(activeTrackId, {
+        status: eventStatus,
+        current_location: eventLocation.trim(),
+        next_location: eventNextLocation.trim() || undefined,
+      });
+      setTracking(updated);
+      const historyData = await trackingService.getTrackingHistory(activeTrackId);
+      setHistory(historyData);
+      setEventLocation("");
+      setEventNextLocation("");
+    } catch (err: any) {
+      setEventError(err.response?.data?.detail || "Failed to add tracking event.");
+    } finally {
+      setEventSubmitting(false);
+    }
   };
 
   const timelineItems = useMemo(
@@ -208,6 +241,49 @@ export function ShipmentTrackingPage() {
               <Timeline items={timelineItems} />
             </div>
           </Card>
+
+          {isStaff && activeTrackId && (
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold text-text-primary">Add Tracking Event</h3>
+              <p className="mt-1 text-sm text-text-secondary">Post a new status update for {activeTrackId}.</p>
+              <form onSubmit={handleAddEvent} className="mt-4 grid gap-3 sm:grid-cols-2">
+                <select
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  value={eventStatus}
+                  onChange={(e) => setEventStatus(e.target.value)}
+                >
+                  {TRACKING_STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  placeholder="Current location"
+                  value={eventLocation}
+                  onChange={(e) => setEventLocation(e.target.value)}
+                  required
+                />
+                <input
+                  type="text"
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:col-span-2"
+                  placeholder="Next location (optional)"
+                  value={eventNextLocation}
+                  onChange={(e) => setEventNextLocation(e.target.value)}
+                />
+                <button
+                  type="submit"
+                  disabled={eventSubmitting}
+                  className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50 sm:col-span-2"
+                >
+                  {eventSubmitting ? "Submitting..." : "Add Event"}
+                </button>
+              </form>
+              {eventError && <p className="mt-2 text-xs font-medium text-red-600">{eventError}</p>}
+            </Card>
+          )}
         </div>
 
         <MapCard title="Route Overview" />

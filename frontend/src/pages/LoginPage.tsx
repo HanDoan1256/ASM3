@@ -38,6 +38,7 @@ export function LoginPage() {
           localStorage.setItem("smartfm_principal_id", result.principal_id);
           localStorage.setItem("smartfm_principal_type", result.principal_type || "customer");
           localStorage.setItem("smartfm_principal_role", result.role || "customer");
+          localStorage.setItem("smartfm_access_token", result.access_token);
           
           setMessage("Login successful! Redirecting to account...");
 

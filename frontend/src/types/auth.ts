@@ -16,5 +16,7 @@ export interface LoginResponse {
   principal_type: "customer" | "staff";
   email: string;
   role: string;
+  access_token: string;
+  token_type: string;
 }
 

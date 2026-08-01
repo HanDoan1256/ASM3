@@ -299,57 +299,59 @@ All backend endpoints are mounted under `/api`.
 ### Auth
 
 - `POST /api/auth/register`
-- `POST /api/auth/login`
+- `POST /api/auth/login` (returns a JWT bearer `access_token`)
 - `POST /api/auth/logout`
 
 ### Accounts
 
-- `GET /api/accounts/customers/{customer_id}`
-- `PUT /api/accounts/customers/{customer_id}`
-- `GET /api/accounts/customers/{customer_id}/addresses`
-- `POST /api/accounts/customers/{customer_id}/addresses`
-- `PUT /api/accounts/addresses/{address_id}`
-- `DELETE /api/accounts/addresses/{address_id}`
+- `GET /api/accounts/customers/{customer_id}` (self or staff only)
+- `PUT /api/accounts/customers/{customer_id}` (self or staff only)
+- `GET /api/accounts/customers/{customer_id}/addresses` (self or staff only)
+- `POST /api/accounts/customers/{customer_id}/addresses` (self or staff only)
+- `PUT /api/accounts/addresses/{address_id}` (owner or staff only)
+- `DELETE /api/accounts/addresses/{address_id}` (owner or staff only)
 
 ### Orders
 
 - `GET /api/service-options`
-- `GET /api/orders`
-- `POST /api/orders`
-- `GET /api/orders/{order_id}`
-- `PUT /api/orders/{order_id}`
+- `GET /api/orders` (staff: all orders, customer: own orders only)
+- `POST /api/orders` (authenticated customer; server always uses the authenticated customer's own id, ignoring any client-supplied `customer_id`; creates the shipment order, its package/address rows, and a Pending invoice in a single transaction)
+- `GET /api/orders/{order_id}` (owner or staff only; includes invoice)
+- `PUT /api/orders/{order_id}` (staff only)
+- `POST /api/orders/{order_id}/approve` (staff only; Pending -> Approved, creates the shipment record; re-approving an already-approved order returns `409 Conflict`)
 
 ### Fleet
 
 - `GET /api/fleet/branches`
 - `GET /api/fleet/vehicles`
-- `POST /api/fleet/vehicles`
-- `PUT /api/fleet/vehicles/{vehicle_id}`
+- `POST /api/fleet/vehicles` (staff only)
+- `PUT /api/fleet/vehicles/{vehicle_id}` (staff only)
 - `GET /api/fleet/drivers`
-- `POST /api/fleet/drivers`
-- `PUT /api/fleet/drivers/{driver_id}`
+- `POST /api/fleet/drivers` (staff only)
+- `PUT /api/fleet/drivers/{driver_id}` (staff only)
 - `GET /api/fleet/allocations`
-- `POST /api/fleet/orders/{order_id}/allocate`
+- `POST /api/fleet/orders/{order_id}/allocate` (staff only; selects the smallest available vehicle with sufficient capacity and the first available driver, then advances order/shipment status)
 
 ### Tracking
 
-- `GET /api/tracking/{track_id}`
-- `GET /api/tracking/{track_id}/history`
-- `GET /api/tracking/shipments/{shipment_id}`
+- `GET /api/tracking/{track_id}` (authenticated)
+- `GET /api/tracking/{track_id}/history` (authenticated)
+- `POST /api/tracking/{track_id}/events` (staff only; records a new tracking history entry and updates shipment/tracking status)
+- `GET /api/tracking/shipments/{shipment_id}` (authenticated)
 
 ### Payments
 
-- `GET /api/payments/invoices`
-- `GET /api/payments/invoices/{invoice_id}`
-- `GET /api/payments/orders/{order_id}/invoice`
-- `GET /api/payments`
-- `POST /api/payments`
+- `GET /api/payments/invoices` (staff only)
+- `GET /api/payments/invoices/{invoice_id}` (owner or staff only)
+- `GET /api/payments/orders/{order_id}/invoice` (owner or staff only)
+- `GET /api/payments` (staff only)
+- `POST /api/payments` (owner or staff only; validates the invoice exists, the payment method is a recognized value, the amount matches the invoice total, and rejects duplicate confirmations against an already-`Completed` invoice with `400 Bad Request`)
 
 ### Reports
 
-- `GET /api/reports`
-- `GET /api/reports/dashboard`
-- `GET /api/reports/{report_type}`
+- `GET /api/reports` (staff only)
+- `GET /api/reports/dashboard` (staff only; total orders, active shipments, available fleet, recognized revenue)
+- `GET /api/reports/{report_type}` (staff only; one of `order_summary`, `shipment_status`, `revenue`, `fleet_utilization`; unknown types return `400 Bad Request`)
 
 ## Running the Project
 
@@ -428,27 +430,46 @@ The project follows these conventions:
 
 ## Current Status
 
-The current baseline is structurally aligned with the layered architecture and business module split, but some areas are still incomplete.
+The system implements the full order-to-delivery business workflow end to end, backed by a real relational schema (no mock data, no hardcoded business values, no stubbed 501 endpoints remaining).
 
 Working areas:
 
-- authentication endpoints
-- customer registration and login
-- order listing
-- order creation
-- order detail retrieval
-- fleet list retrieval
-- tracking lookup retrieval
-- invoice and payment retrieval
-- dashboard and report listing retrieval
+- JWT-based authentication (login issues a bearer token; legacy SHA-256 password hashes are transparently upgraded to bcrypt on next successful login)
+- route-level authorization: customer/staff role checks and address/order/invoice ownership checks on every protected endpoint
+- customer registration, login, and address management (including Vietnam province/district/ward-style address fields)
+- atomic order creation: shipment order, package details, sender/receiver addresses (new or existing), and a Pending invoice are created in a single database transaction
+- staff order approval workflow (`Pending -> Approved`), rejecting duplicate approvals
+- fleet allocation: assigns the smallest available vehicle with sufficient capacity and the first available driver, and advances shipment/tracking status (documented limitation: no branch/route-based proximity matching yet — see below)
+- payment confirmation workflow for all three payment methods (`SENDER_COD`, `RECEIVER_COD`, `SENDER_TRANSFER`), with amount validation and duplicate-payment rejection
+- tracking history creation (staff) and retrieval (authenticated users), driving a real shipment timeline on the frontend
+- dashboard overview and report generation (`order_summary`, `shipment_status`, `revenue`, `fleet_utilization`) computed from live data, not sample arrays
+- frontend dashboard/reports pages render derived charts and generated reports from real order/report data instead of hardcoded sample arrays
+- backend test suite (`backend/tests/`) covering the critical workflow: registration/login, customer-id spoofing protection, full order lifecycle (create -> approve -> allocate), payment validation, and report generation
 
-Still partial or incomplete:
+Known limitations:
 
-- account page is still mostly static on the frontend
-- fleet allocation workflow is not fully implemented
-- tracking update workflow is not implemented
-- report generation workflow is not implemented
-- some pages still rely on minimal aggregation or fallback display rather than full operational workflows
+- fleet allocation does not yet account for branch/route proximity — it is capacity- and availability-based only, since no reliable branch/route linkage exists in the current schema
+- Alembic migrations are present as scaffolding but not exercised in this workflow; local SQLite development relies on `Base.metadata.create_all()` at startup
+- frontend `PaymentPage.tsx`/other minor screens may still be light on real data wiring; verify against the current implementation before assuming full coverage
+
+## Testing
+
+Backend tests live in `backend/tests/` and use FastAPI's `TestClient` against an isolated, temporary SQLite database (never the developer's local `app.db` or a real Postgres/Supabase instance). Run them with:
+
+```bash
+cd backend
+source .venv/bin/activate
+pip install -r requirements.txt
+pytest
+```
+
+Frontend type-checking and build:
+
+```bash
+cd frontend
+npx tsc -b
+npm run build
+```
 
 ## Notes
 

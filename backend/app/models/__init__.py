@@ -1,3 +1,4 @@
+from app.models.account_history import AccountHistory
 from app.models.address import Address
 from app.models.branch import Branch
 from app.models.customer import Customer
@@ -16,6 +17,7 @@ from app.models.tracking_history import TrackingHistory
 from app.models.vehicle import Vehicle
 
 __all__ = [
+    "AccountHistory",
     "Address",
     "Branch",
     "Customer",

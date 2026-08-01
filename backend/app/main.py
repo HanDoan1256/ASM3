@@ -5,6 +5,7 @@ from app.api.routes import router as api_router
 from app.database.session import Base, engine
 from app.core.config import settings
 from app.models import (  # noqa: F401
+    account_history,
     address,
     branch,
     customer,

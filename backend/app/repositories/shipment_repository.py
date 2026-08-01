@@ -14,3 +14,6 @@ class ShipmentRepository(BaseRepository[Shipment]):
 
     def get_by_track_id(self, track_id: str) -> Shipment | None:
         return self.db.scalar(select(Shipment).where(Shipment.track_id == track_id))
+
+    def get_by_order_id(self, order_id: str) -> Shipment | None:
+        return self.db.scalar(select(Shipment).where(Shipment.order_id == order_id))

@@ -10,6 +10,7 @@ class InvoiceBase(ORMModel):
     total: float
     invoice_date: datetime
     status: str
+    payment_method: str | None = None
 
 
 class InvoiceCreate(InvoiceBase):

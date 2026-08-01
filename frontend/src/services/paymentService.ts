@@ -1,5 +1,5 @@
 import { api } from "./api";
-import type { Invoice, Payment } from "../types/payment";
+import type { Invoice, Payment, PaymentConfirmPayload } from "../types/payment";
 
 export const paymentService = {
   listInvoices: async (): Promise<Invoice[]> => {
@@ -12,6 +12,10 @@ export const paymentService = {
   },
   getInvoiceByOrder: async (orderId: string): Promise<Invoice> => {
     const response = await api.get(`/payments/orders/${orderId}/invoice`);
+    return response.data;
+  },
+  confirmPayment: async (payload: PaymentConfirmPayload): Promise<Payment> => {
+    const response = await api.post("/payments", payload);
     return response.data;
   },
 };
