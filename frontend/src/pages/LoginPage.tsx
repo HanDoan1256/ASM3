@@ -42,7 +42,7 @@ export function LoginPage() {
           setMessage("Login successful! Redirecting to account...");
 
           setTimeout(() => {
-            navigate("/account");
+            navigate("/");
           }, 500);
         } else {
           setError("Invalid email or password.");
