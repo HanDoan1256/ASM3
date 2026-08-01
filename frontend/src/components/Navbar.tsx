@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import { SearchBar } from "./SearchBar";
@@ -10,13 +10,20 @@ interface NavbarProps {
 }
 
 export function Navbar({ onMenuToggle }: NavbarProps) {
+  const navigate = useNavigate();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
   const [userName, setUserName] = useState("User Account");
   const [userEmail, setUserEmail] = useState("");
+  const [userRole, setUserRole] = useState("");
 
   useEffect(() => {
     const principalId = localStorage.getItem("smartfm_principal_id");
     const principalType = localStorage.getItem("smartfm_principal_type");
     const principalRole = localStorage.getItem("smartfm_principal_role");
+
+    setUserRole(principalRole || "");
 
     if (!principalId) return;
 
@@ -28,15 +35,30 @@ export function Navbar({ onMenuToggle }: NavbarProps) {
           setUserEmail(customer.email || "");
         })
         .catch(() => {
-          // fall back to role label if the fetch fails, don't leave it blank
           setUserName(principalRole ? `${principalRole} (offline)` : "User Account");
         });
     } else {
-      // staff accounts: no /accounts/customers endpoint applies to them,
-      // fall back to showing their role until there's a staff profile endpoint
       setUserName(principalRole || "Staff");
     }
   }, []);
+
+  // Close the dropdown when clicking outside it
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem("smartfm_principal_id");
+    localStorage.removeItem("smartfm_principal_type");
+    localStorage.removeItem("smartfm_principal_role");
+    navigate("/login");
+  };
 
   return (
     <header className="glass-surface flex items-center justify-between gap-4 px-5 py-4">
@@ -58,22 +80,51 @@ export function Navbar({ onMenuToggle }: NavbarProps) {
         <SearchBar placeholder="Search orders, tracking numbers, drivers..." />
       </div>
 
-      <div className="flex items-center gap-3">
-        <Button icon={<Icon name="notifications" />} variant="ghost">
-          Alerts
-        </Button>
-        <Button icon={<Icon name="settings" />} variant="ghost">
+      <div className="relative flex items-center gap-3" ref={menuRef}>
+        <Button
+          icon={<Icon name="settings" />}
+          variant="ghost"
+          onClick={() => setIsMenuOpen((open) => !open)}
+        >
           Settings
         </Button>
 
-        <Link
-          to="/account"
-          className="hidden rounded-2xl border border-border bg-white px-4 py-3 transition hover:bg-brand-50 sm:block"
-          title="Go to Account Settings"
-        >
-          <p className="text-sm font-semibold text-text-primary">{userName}</p>
-          {userEmail && <p className="text-sm text-text-secondary">{userEmail}</p>}
-        </Link>
+        {isMenuOpen && (
+          <div className="absolute right-0 top-[calc(100%+8px)] w-72 rounded-2xl border border-border bg-white p-2 shadow-panel z-50">
+            {/* User summary */}
+            <div className="rounded-xl bg-brand-50 p-3">
+              <p className="text-sm font-semibold text-text-primary">{userName}</p>
+              {userEmail && <p className="text-xs text-text-secondary">{userEmail}</p>}
+              {userRole && (
+                <span className="mt-1 inline-block rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand-500">
+                  {userRole}
+                </span>
+              )}
+            </div>
+
+            <div className="mt-2 flex flex-col">
+              <Link
+                to="/account"
+                className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-text-primary transition hover:bg-gray-50"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                <Icon name="person" className="text-[18px]" />
+                Account Settings
+              </Link>
+
+              <hr className="my-1 border-border" />
+
+              <button
+                className="flex items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-danger transition hover:bg-danger/10"
+                onClick={handleLogout}
+                type="button"
+              >
+                <Icon name="logout" className="text-[18px]" />
+                Log Out
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </header>
   );

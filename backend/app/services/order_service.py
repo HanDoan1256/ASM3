@@ -94,7 +94,7 @@ class OrderService:
             package_id=package_details.package_id,
             approved_by=None,
             total_price=total_price,
-            order_status="Approved",
+            order_status="Pending",
             created_at=datetime.now(timezone.utc),
             notes=payload.notes,
         )

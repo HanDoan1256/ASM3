@@ -1,16 +1,23 @@
-export interface TrackingRecord {
-  track_id: string;
-  current_location: string;
-  last_updated?: string | null;
-  status?: string | null;
-}
-
 export interface TrackingHistoryItem {
   track_history_id: number;
   track_id: string;
   current_location: string;
   next_location?: string | null;
   recorded_at: string;
+}
+
+export interface TrackingRecord {
+  track_id: string;
+  current_location: string;
+  last_updated?: string | null;
+  status?: string | null;
+  history?: TrackingHistoryItem[]; // Added for timeline rendering
+}
+
+export interface TrackingStatusUpdatePayload {
+  status: string;
+  current_location: string;
+  next_location?: string | null;
 }
 
 export interface ShipmentRecord {
@@ -24,4 +31,3 @@ export interface ShipmentRecord {
   arrival_time?: string | null;
   shipment_status: string;
 }
-

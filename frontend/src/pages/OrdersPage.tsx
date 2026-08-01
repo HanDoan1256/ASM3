@@ -20,11 +20,19 @@ export function OrdersPage() {
 
   return (
     <PageContainer>
-      <PageHeader
-        eyebrow="Orders"
-        description="Manage freight orders in a structured operational table with shipment status, customer references, and direct access to order details."
-        title="Orders"
-      />
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <PageHeader
+          eyebrow="Orders"
+          description="Manage freight orders in a structured operational table with shipment status, customer references, and direct access to order details."
+          title="Orders"
+        />
+        <Link
+          className="inline-flex shrink-0 items-center gap-2 rounded-2xl bg-brand-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-600"
+          to="/orders/create"
+        >
+          Create New Order
+        </Link>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_220px_220px]">
         <SearchBar placeholder="Search by tracking number, sender, or receiver" />

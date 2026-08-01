@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 
 import { Icon } from "./Icon";
+import logo from "./logo.png";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -27,12 +28,8 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="rounded-[28px] bg-brand-500 p-6 text-white">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/80">SmartFM</p>
-          <h2 className="mt-4 text-2xl font-bold">Enterprise Logistics Suite</h2>
-          <p className="mt-3 text-sm leading-6 text-white/85">
-            Manage orders, fleets, billing, and shipment progress from one operational workspace.
-          </p>
+        <div className="overflow-hidden rounded-[28px]">
+          <img src={logo} alt="SmartFM" className="w-full h-auto object-cover" />
         </div>
 
         <nav className="mt-6 space-y-2">
@@ -56,4 +53,3 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     </>
   );
 }
-

@@ -14,38 +14,72 @@ import type { OrderDetailResponse } from "../types/order";
 import type { ShipmentRecord, TrackingHistoryItem, TrackingRecord } from "../types/tracking";
 
 export function ShipmentTrackingPage() {
+  const [searchCode, setSearchCode] = useState<string>("");
+  const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
   const [allocation, setAllocation] = useState<Allocation | null>(null);
   const [tracking, setTracking] = useState<TrackingRecord | null>(null);
   const [shipment, setShipment] = useState<ShipmentRecord | null>(null);
   const [history, setHistory] = useState<TrackingHistoryItem[]>([]);
   const [orderDetails, setOrderDetails] = useState<OrderDetailResponse | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
+  // Initial load: Fetch default allocation if no manual search code is active
   useEffect(() => {
     fleetService
       .listAllocations()
       .then((allocations) => {
         const firstTracked = allocations.find((item) => item.track_id) ?? allocations[0] ?? null;
         setAllocation(firstTracked);
+        if (firstTracked?.track_id) {
+          setActiveTrackId(firstTracked.track_id);
+        }
       })
       .catch(() => setAllocation(null));
   }, []);
 
+  // Fetch tracking and history whenever activeTrackId changes
   useEffect(() => {
-    if (!allocation) {
+    if (!activeTrackId) {
+      setTracking(null);
+      setHistory([]);
       return;
     }
 
-    if (allocation.track_id) {
-      trackingService.getTracking(allocation.track_id).then(setTracking).catch(() => setTracking(null));
-      trackingService.getTrackingHistory(allocation.track_id).then(setHistory).catch(() => setHistory([]));
-    } else {
-      setTracking(null);
-      setHistory([]);
-    }
+    setLoading(true);
+    setError(null);
+
+    trackingService
+      .getTracking(activeTrackId)
+      .then((data) => {
+        setTracking(data);
+        return trackingService.getTrackingHistory(activeTrackId);
+      })
+      .then((historyData) => setHistory(historyData))
+      .catch((err: any) => {
+        setError(err.response?.data?.detail || "Shipment tracking number not found.");
+        setTracking(null);
+        setHistory([]);
+      })
+      .finally(() => setLoading(false));
+  }, [activeTrackId]);
+
+  // Fetch linked order/shipment details if allocation exists
+  useEffect(() => {
+    if (!allocation) return;
 
     trackingService.getShipment(allocation.shipment_id).then(setShipment).catch(() => setShipment(null));
     orderService.getOrderById(allocation.order_id).then(setOrderDetails).catch(() => setOrderDetails(null));
   }, [allocation]);
+
+  // Handle manual tracking lookup
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = searchCode.trim();
+    if (!trimmed) return;
+
+    setActiveTrackId(trimmed);
+  };
 
   const timelineItems = useMemo(
     () =>
@@ -66,7 +100,7 @@ export function ShipmentTrackingPage() {
               title: "No Updates",
             },
           ],
-    [history, tracking?.status],
+    [history, tracking?.status]
   );
 
   return (
@@ -77,20 +111,45 @@ export function ShipmentTrackingPage() {
         title="SmartFM Tracking"
       />
 
+      {/* Manual Search Bar */}
+      <Card className="mb-6 p-4">
+        <form onSubmit={handleSearchSubmit} className="flex gap-3">
+          <input
+            type="text"
+            className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            placeholder="Enter Tracking Number (e.g., TRK-100234)..."
+            value={searchCode}
+            onChange={(e) => setSearchCode(e.target.value)}
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? "Searching..." : "Track Package"}
+          </button>
+        </form>
+        {error && <p className="mt-2 text-xs font-medium text-red-600">{error}</p>}
+      </Card>
+
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-4">
           <Card className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-text-secondary">Tracking Number</p>
-                <h3 className="mt-2 text-2xl font-semibold text-text-primary">{allocation?.track_id ?? "Not assigned"}</h3>
+                <h3 className="mt-2 text-2xl font-semibold text-text-primary">
+                  {tracking?.track_id ?? activeTrackId ?? "Not assigned"}
+                </h3>
               </div>
               <StatusBadge status={tracking?.status ?? shipment?.shipment_status ?? "Pending"} />
             </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <div>
                 <p className="text-sm text-text-secondary">Current Status</p>
-                <p className="mt-1 font-semibold text-text-primary">{tracking?.current_location ?? "Tracking unavailable"}</p>
+                <p className="mt-1 font-semibold text-text-primary">
+                  {tracking?.current_location ?? "Tracking unavailable"}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-text-secondary">Estimated Delivery</p>
@@ -98,8 +157,8 @@ export function ShipmentTrackingPage() {
                   {orderDetails?.service_option?.estimated_days !== undefined && orderDetails.order.created_at
                     ? new Date(
                         new Date(orderDetails.order.created_at).setDate(
-                          new Date(orderDetails.order.created_at).getDate() + orderDetails.service_option.estimated_days,
-                        ),
+                          new Date(orderDetails.order.created_at).getDate() + orderDetails.service_option.estimated_days
+                        )
                       )
                         .toISOString()
                         .slice(0, 10)
@@ -115,22 +174,30 @@ export function ShipmentTrackingPage() {
               <div>
                 <p className="text-sm text-text-secondary">Origin</p>
                 <p className="mt-1 text-sm leading-6 text-text-primary">
-                  {[orderDetails?.sender_address?.street, orderDetails?.sender_address?.city].filter(Boolean).join(", ") || "-"}
+                  {[orderDetails?.sender_address?.street, orderDetails?.sender_address?.city]
+                    .filter(Boolean)
+                    .join(", ") || "-"}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-text-secondary">Destination</p>
                 <p className="mt-1 text-sm leading-6 text-text-primary">
-                  {[orderDetails?.receiver_address?.street, orderDetails?.receiver_address?.city].filter(Boolean).join(", ") || "-"}
+                  {[orderDetails?.receiver_address?.street, orderDetails?.receiver_address?.city]
+                    .filter(Boolean)
+                    .join(", ") || "-"}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-text-secondary">Service Type</p>
-                <p className="mt-1 text-sm font-semibold text-text-primary">{orderDetails?.service_option?.service_name ?? "-"}</p>
+                <p className="mt-1 text-sm font-semibold text-text-primary">
+                  {orderDetails?.service_option?.service_name ?? "-"}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-text-secondary">Vehicle</p>
-                <p className="mt-1 text-sm font-semibold text-text-primary">{shipment?.vehicle_id ?? allocation?.vehicle_id ?? "-"}</p>
+                <p className="mt-1 text-sm font-semibold text-text-primary">
+                  {shipment?.vehicle_id ?? allocation?.vehicle_id ?? "-"}
+                </p>
               </div>
             </div>
           </Card>

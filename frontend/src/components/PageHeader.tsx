@@ -27,21 +27,22 @@ export function PageHeader({ actions = [], description, eyebrow, title }: PageHe
       </div>
 
       {actions.length > 0 && (
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-nowrap gap-3 overflow-x-auto xl:shrink-0">
           {actions.map((action) => (
             action.to ? (
-              <Link key={action.label} to={action.to}>
+              <Link key={action.label} className="shrink-0" to={action.to}>
                 <Button icon={action.icon ? <Icon name={action.icon} /> : undefined} variant={action.variant ?? "secondary"}>
-                  {action.label}
+                  <span className="whitespace-nowrap">{action.label}</span>
                 </Button>
               </Link>
             ) : (
               <Button
                 key={action.label}
+                className="shrink-0"
                 icon={action.icon ? <Icon name={action.icon} /> : undefined}
                 variant={action.variant ?? "secondary"}
               >
-                {action.label}
+                <span className="whitespace-nowrap">{action.label}</span>
               </Button>
             )
           ))}
