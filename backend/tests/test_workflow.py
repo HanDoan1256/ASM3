@@ -172,3 +172,95 @@ def test_report_generation_and_unknown_report_type(client, staff_headers):
     dashboard_resp = client.get("/api/reports/dashboard", headers=staff_headers)
     assert dashboard_resp.status_code == 200
     assert "total_orders" in dashboard_resp.json()
+
+
+def test_customer_order_scope_and_fleet_access(client, staff_headers):
+    customer_a, headers_a = _register_and_login(client, f"user_{uuid.uuid4().hex[:8]}@example.com")
+    customer_b, headers_b = _register_and_login(client, f"user_{uuid.uuid4().hex[:8]}@example.com")
+
+    order_a = client.post("/api/orders", json=_create_order_payload(customer_a), headers=headers_a)
+    order_b = client.post("/api/orders", json=_create_order_payload(customer_b), headers=headers_b)
+    assert order_a.status_code == 201
+    assert order_b.status_code == 201
+
+    orders_for_a = client.get("/api/orders", headers=headers_a)
+    assert orders_for_a.status_code == 200
+    assert {order["customer_id"] for order in orders_for_a.json()} == {customer_a}
+
+    other_order_id = order_b.json()["order_id"]
+    assert client.get(f"/api/orders/{other_order_id}", headers=headers_a).status_code == 403
+    assert client.get("/api/fleet/vehicles", headers=headers_a).status_code == 403
+    assert client.get("/api/fleet/drivers", headers=headers_a).status_code == 403
+    assert client.get("/api/fleet/allocations", headers=headers_a).status_code == 403
+    assert client.get("/api/fleet/vehicles", headers=staff_headers).status_code == 200
+
+
+def test_customer_cannot_use_another_customers_saved_address(client):
+    customer_a, headers_a = _register_and_login(client, f"user_{uuid.uuid4().hex[:8]}@example.com")
+    customer_b, headers_b = _register_and_login(client, f"user_{uuid.uuid4().hex[:8]}@example.com")
+
+    address_resp = client.post(
+        f"/api/accounts/customers/{customer_a}/addresses",
+        json={
+            "receiver_name": "Customer A",
+            "receiver_phone": "0900000001",
+            "street": "A Street",
+            "district": "District A",
+            "city": "Ho Chi Minh City",
+        },
+        headers=headers_a,
+    )
+    assert address_resp.status_code == 201
+
+    payload = _create_order_payload(customer_b)
+    payload.pop("sender_address")
+    payload["sender_address_id"] = address_resp.json()["address_id"]
+    assert client.post("/api/orders", json=payload, headers=headers_b).status_code == 400
+
+
+def test_customer_cannot_retrieve_another_customers_tracking(client, staff_headers):
+    customer_a, headers_a = _register_and_login(client, f"user_{uuid.uuid4().hex[:8]}@example.com")
+    customer_b, headers_b = _register_and_login(client, f"user_{uuid.uuid4().hex[:8]}@example.com")
+    order_resp = client.post("/api/orders", json=_create_order_payload(customer_b), headers=headers_b)
+    order_id = order_resp.json()["order_id"]
+    suffix = uuid.uuid4().hex[:8]
+    assert client.post(
+        "/api/fleet/vehicles",
+        json={
+            "vehicle_id": f"VEH-{suffix}",
+            "plate_number": f"TEST-{suffix}",
+            "vehicle_type": "Truck",
+            "capacity": 5,
+            "status": "Available",
+        },
+        headers=staff_headers,
+    ).status_code == 201
+    assert client.post(
+        "/api/fleet/drivers",
+        json={
+            "driver_id": f"DRV-{suffix}",
+            "full_name": "Tracking Test Driver",
+            "phone": "0911111111",
+            "license_number": f"LIC-{suffix}",
+            "status": "Available",
+        },
+        headers=staff_headers,
+    ).status_code == 201
+    assert client.post(f"/api/orders/{order_id}/approve", headers=staff_headers).status_code == 200
+    assert client.post(f"/api/fleet/orders/{order_id}/allocate", headers=staff_headers).status_code == 200
+
+    allocations = client.get("/api/fleet/allocations", headers=staff_headers)
+    tracking_id = next(item["track_id"] for item in allocations.json() if item["order_id"] == order_id)
+    assert client.get(f"/api/tracking/{tracking_id}", headers=headers_a).status_code == 404
+    assert client.get(f"/api/tracking/{tracking_id}/history", headers=headers_a).status_code == 404
+    assert client.get(f"/api/tracking/orders/{order_id}", headers=headers_a).status_code == 404
+
+
+def test_deleted_customer_is_soft_deleted_and_cannot_login(client):
+    email = f"user_{uuid.uuid4().hex[:8]}@example.com"
+    _, headers = _register_and_login(client, email)
+
+    principal_id = client.post("/api/auth/login", json={"email": email, "password": "CustomerPass123!"}).json()["principal_id"]
+    delete_resp = client.delete(f"/api/accounts/customers/{principal_id}", headers=headers)
+    assert delete_resp.status_code == 204
+    assert client.post("/api/auth/login", json={"email": email, "password": "CustomerPass123!"}).status_code == 401

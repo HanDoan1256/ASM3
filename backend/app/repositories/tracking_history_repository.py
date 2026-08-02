@@ -14,7 +14,6 @@ class TrackingHistoryRepository(BaseRepository[TrackingHistory]):
             self.db.scalars(
                 select(TrackingHistory)
                 .where(TrackingHistory.track_id == track_id)
-                .order_by(TrackingHistory.recorded_at.desc())
+                .order_by(TrackingHistory.recorded_at.asc())
             ).all()
         )
-

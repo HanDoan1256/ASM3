@@ -12,14 +12,16 @@ const navigation = [
   { icon: "space_dashboard", label: "Dashboard", to: "/" },
   { icon: "receipt_long", label: "Orders", to: "/orders" },
   { icon: "local_shipping", label: "Shipment", to: "/shipments/tracking" },
-  { icon: "airport_shuttle", label: "Fleet", to: "/fleet" },
   { icon: "payments", label: "Payment", to: "/payment" },
-  { icon: "bar_chart", label: "Reports", to: "/reports" },
   { icon: "person", label: "Account", to: "/account" },
+  { icon: "airport_shuttle", label: "Fleet", to: "/fleet", staffOnly: true },
+  { icon: "bar_chart", label: "Reports", to: "/reports", staffOnly: true },
   { icon: "logout", label: "Logout", to: "/login" },
 ];
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
+  const isStaff = localStorage.getItem("smartfm_principal_type") === "staff";
+
   return (
     <>
       {isOpen && <div className="fixed inset-0 z-30 bg-slate-900/30 lg:hidden" onClick={onClose} />}
@@ -33,7 +35,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         </div>
 
         <nav className="mt-6 space-y-2">
-          {navigation.map((item) => (
+            {navigation.filter((item) => !item.staffOnly || isStaff).map((item) => (
             <NavLink
               key={item.to}
               className={({ isActive }) =>

@@ -28,7 +28,8 @@ def list_orders(
     db: Session = Depends(get_db),
     principal: Principal = Depends(get_current_principal),
 ) -> list[ShipmentOrderListItem]:
-    return OrderService(db).list_orders()
+    customer_id = principal.principal_id if principal.principal_type == "customer" else None
+    return OrderService(db).list_orders(customer_id=customer_id)
 
 
 @router.post("/orders/estimate", response_model=OrderEstimateResponse)

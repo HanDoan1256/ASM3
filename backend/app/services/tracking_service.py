@@ -79,6 +79,7 @@ class TrackingService:
                 track_id=track_id,
                 current_location=payload.current_location,
                 next_location=payload.next_location,
+                status=next_tracking_status,
             )
         )
 

@@ -6,16 +6,27 @@ import { PageContainer } from "../components/PageContainer";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
 import { paymentService } from "../services/paymentService";
+import { orderService } from "../services/orderService";
 import type { Invoice, Payment } from "../types/payment";
 
 export function PaymentPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const isStaff = localStorage.getItem("smartfm_principal_type") === "staff";
 
   useEffect(() => {
-    paymentService.listInvoices().then(setInvoices).catch(() => setInvoices([]));
-    paymentService.listPayments().then(setPayments).catch(() => setPayments([]));
-  }, []);
+    if (isStaff) {
+      paymentService.listInvoices().then(setInvoices).catch(() => setInvoices([]));
+      paymentService.listPayments().then(setPayments).catch(() => setPayments([]));
+      return;
+    }
+
+    orderService
+      .listOrders()
+      .then((orders) => Promise.all(orders.map((order) => paymentService.getInvoiceByOrder(order.order_id))))
+      .then(setInvoices)
+      .catch(() => setInvoices([]));
+  }, [isStaff]);
 
   const invoice = invoices[0] ?? null;
   const payment = useMemo(
@@ -45,7 +56,7 @@ export function PaymentPage() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-text-secondary">Payment Method</span>
-              <span className="text-sm font-semibold text-text-primary">{payment?.payment_method ?? "-"}</span>
+              <span className="text-sm font-semibold text-text-primary">{payment?.payment_method ?? invoice?.payment_method ?? "-"}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-text-secondary">Amount</span>

@@ -62,8 +62,10 @@ class OrderService:
             "estimated_total": estimated_total,
         }
 
-    def list_orders(self):
+    def list_orders(self, customer_id: str | None = None):
         orders = self.shipment_order_repository.list_recent()
+        if customer_id is not None:
+            orders = [order for order in orders if order.customer_id == customer_id]
         summaries = []
         for order in orders:
             customer = self.customer_repository.get_by_id(order.customer_id)
@@ -129,7 +131,10 @@ class OrderService:
             if sender_address.customer_id and sender_address.customer_id != payload.customer_id:
                 raise ValueError("Sender address does not belong to this customer")
         elif payload.sender_address is not None:
-            sender_address = Address(**payload.sender_address.model_dump())
+            sender_address = Address(
+                **payload.sender_address.model_dump(exclude={"customer_id"}),
+                customer_id=payload.customer_id,
+            )
             self.db.add(sender_address)
         else:
             raise ValueError("Sender address is required")
@@ -138,8 +143,13 @@ class OrderService:
             receiver_address = self.address_repository.get_by_id(payload.receiver_address_id)
             if not receiver_address:
                 raise ValueError("Receiver address not found")
+            if receiver_address.customer_id and receiver_address.customer_id != payload.customer_id:
+                raise ValueError("Receiver address does not belong to this customer")
         elif payload.receiver_address is not None:
-            receiver_address = Address(**payload.receiver_address.model_dump())
+            receiver_address = Address(
+                **payload.receiver_address.model_dump(exclude={"customer_id"}),
+                customer_id=None,
+            )
             self.db.add(receiver_address)
         else:
             raise ValueError("Receiver address is required")

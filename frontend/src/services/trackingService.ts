@@ -29,4 +29,9 @@ export const trackingService = {
     const response = await api.get(`/tracking/shipments/${shipmentId}`);
     return response.data;
   },
+
+  getShipmentByOrder: async (orderId: string): Promise<ShipmentRecord> => {
+    const response = await api.get(`/tracking/orders/${orderId}`);
+    return response.data;
+  },
 };

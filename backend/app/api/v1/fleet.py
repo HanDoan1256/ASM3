@@ -13,7 +13,7 @@ router = APIRouter()
 @router.get("/branches", response_model=list[BranchRead])
 def list_branches(
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_current_principal),
+    principal: Principal = Depends(require_staff),
 ) -> list[BranchRead]:
     return FleetAllocationService(db).list_branches()
 
@@ -21,7 +21,7 @@ def list_branches(
 @router.get("/vehicles", response_model=list[VehicleRead])
 def list_vehicles(
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_current_principal),
+    principal: Principal = Depends(require_staff),
 ) -> list[VehicleRead]:
     return FleetAllocationService(db).list_vehicles()
 
@@ -51,7 +51,7 @@ def update_vehicle(
 @router.get("/drivers", response_model=list[DriverRead])
 def list_drivers(
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_current_principal),
+    principal: Principal = Depends(require_staff),
 ) -> list[DriverRead]:
     return FleetAllocationService(db).list_drivers()
 
@@ -81,7 +81,7 @@ def update_driver(
 @router.get("/allocations", response_model=list[AllocationRead])
 def list_allocations(
     db: Session = Depends(get_db),
-    principal: Principal = Depends(get_current_principal),
+    principal: Principal = Depends(require_staff),
 ) -> list[AllocationRead]:
     return FleetAllocationService(db).list_allocations()
 

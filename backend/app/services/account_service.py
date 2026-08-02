@@ -39,7 +39,13 @@ class AccountService:
         return updated_customer
 
     def delete_customer(self, customer_id: str) -> bool:
-        return self.customer_repository.delete_account(customer_id)
+        customer = self.customer_repository.get_by_id(customer_id)
+        if not customer:
+            return False
+        customer.status = "Deleted"
+        updated_customer = self.customer_repository.update(customer)
+        self.history_repository.create(customer_id=customer_id, action="Account deleted")
+        return updated_customer is not None
 
     def list_addresses(self, customer_id: str):
         return self.address_repository.list_by_customer_id(customer_id)

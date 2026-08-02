@@ -3,6 +3,7 @@ export interface TrackingHistoryItem {
   track_id: string;
   current_location: string;
   next_location?: string | null;
+  status?: string | null;
   recorded_at: string;
 }
 

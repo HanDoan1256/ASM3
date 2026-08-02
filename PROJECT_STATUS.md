@@ -91,3 +91,13 @@ See `README.md` → "Current API Surface" for the full, current endpoint list wi
 - Consider adding frontend component/integration tests if a test runner (e.g. Vitest) is introduced in a future phase.
 - Consider exercising Alembic migrations against a real Postgres/Supabase target before production deployment.
 - Consider branch/route-aware fleet allocation if/when reliable branch-route linkage data becomes available in the schema.
+
+## 11. Authorization and Ownership Corrections
+
+- Customer order lists are filtered to the authenticated customer; staff can list and retrieve all orders.
+- Customer order, shipment, and tracking access is ownership-checked; staff retains operational access.
+- Fleet branches, vehicles, drivers, allocations, and mutations are staff-only.
+- New sender addresses are assigned to the authenticated customer, and referenced saved addresses are ownership-validated.
+- Customer account deletion is now a soft delete (`status="Deleted"`) that preserves historical relationships and prevents future login.
+- Dashboard active-shipment counts exclude delivered shipments and orders cancelled at the order level.
+- Tracking history records now preserve the status associated with each event so timelines do not repeat the current master status.

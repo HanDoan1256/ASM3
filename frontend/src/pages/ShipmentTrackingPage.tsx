@@ -34,6 +34,28 @@ export function ShipmentTrackingPage() {
 
   // Initial load: Fetch default allocation if no manual search code is active
   useEffect(() => {
+    if (!isStaff) {
+      orderService
+        .listOrders()
+        .then(async (orders) => {
+          for (const order of orders) {
+            try {
+              const shipmentData = await trackingService.getShipmentByOrder(order.order_id);
+              if (shipmentData.track_id) {
+                setShipment(shipmentData);
+                setOrderDetails(await orderService.getOrderById(order.order_id));
+                setActiveTrackId(shipmentData.track_id);
+                return;
+              }
+            } catch {
+              continue;
+            }
+          }
+        })
+        .catch(() => setShipment(null));
+      return;
+    }
+
     fleetService
       .listAllocations()
       .then((allocations) => {
@@ -44,7 +66,7 @@ export function ShipmentTrackingPage() {
         }
       })
       .catch(() => setAllocation(null));
-  }, []);
+  }, [isStaff]);
 
   // Fetch tracking and history whenever activeTrackId changes
   useEffect(() => {
@@ -74,11 +96,11 @@ export function ShipmentTrackingPage() {
 
   // Fetch linked order/shipment details if allocation exists
   useEffect(() => {
-    if (!allocation) return;
+    if (!allocation || !isStaff) return;
 
     trackingService.getShipment(allocation.shipment_id).then(setShipment).catch(() => setShipment(null));
     orderService.getOrderById(allocation.order_id).then(setOrderDetails).catch(() => setOrderDetails(null));
-  }, [allocation]);
+  }, [allocation, isStaff]);
 
   // Handle manual tracking lookup
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -123,7 +145,7 @@ export function ShipmentTrackingPage() {
               ? `Shipment progressed from ${item.current_location} toward ${item.next_location}.`
               : `Shipment recorded at ${item.current_location}.`,
             time: new Date(item.recorded_at).toLocaleString(),
-            title: tracking?.status ?? "Tracking Update",
+            title: item.status ?? "Tracking Update",
           }))
         : [
             {

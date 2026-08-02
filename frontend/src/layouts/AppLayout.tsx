@@ -1,11 +1,22 @@
 import { useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 
 import { Navbar } from "../components/Navbar";
 import { Sidebar } from "../components/Sidebar";
 
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
+  const isAuthenticated = Boolean(localStorage.getItem("smartfm_access_token"));
+  const isStaff = localStorage.getItem("smartfm_principal_type") === "staff";
+  const staffOnlyPath = location.pathname === "/fleet" || location.pathname === "/reports";
+
+  if (!isAuthenticated) {
+    return <Navigate replace to="/login" />;
+  }
+  if (staffOnlyPath && !isStaff) {
+    return <Navigate replace to="/" />;
+  }
 
   return (
     <div className="min-h-screen bg-background p-4 lg:p-6">
@@ -22,4 +33,3 @@ export function AppLayout() {
     </div>
   );
 }
-

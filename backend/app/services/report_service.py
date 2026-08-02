@@ -4,7 +4,7 @@ import json
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.statuses import RESOURCE_AVAILABLE
+from app.core.statuses import ORDER_CANCELLED, RESOURCE_AVAILABLE, SHIPMENT_DELIVERED
 from app.models.payment import Payment
 from app.models.report import Report
 from app.models.shipment import Shipment
@@ -25,9 +25,17 @@ class ReportService:
 
     def dashboard_overview(self) -> dict[str, int | float | list[str]]:
         total_orders = self.db.scalar(select(func.count()).select_from(ShipmentOrder)) or 0
-        active_shipments = self.db.scalar(select(func.count()).select_from(Shipment)) or 0
+        active_shipments = self.db.scalar(
+            select(func.count())
+            .select_from(Shipment)
+            .join(ShipmentOrder, Shipment.order_id == ShipmentOrder.order_id)
+            .where(
+                Shipment.shipment_status != SHIPMENT_DELIVERED,
+                ShipmentOrder.order_status != ORDER_CANCELLED,
+            )
+        ) or 0
         fleet_available = self.db.scalar(
-            select(func.count()).select_from(Vehicle).where(Vehicle.status == "Available")
+            select(func.count()).select_from(Vehicle).where(Vehicle.status == RESOURCE_AVAILABLE)
         ) or 0
         revenue = float(self.db.scalar(select(func.coalesce(func.sum(Payment.amount), 0)).select_from(Payment)) or 0)
         recent_order_ids = [
@@ -110,4 +118,3 @@ class ReportService:
             content=json.dumps(content),
         )
         return self.report_repository.create(report)
-

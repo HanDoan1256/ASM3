@@ -19,11 +19,27 @@ import type { DashboardOverview } from "../types/report";
 export function DashboardPage() {
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const isStaff = localStorage.getItem("smartfm_principal_type") === "staff";
 
   useEffect(() => {
     orderService.listOrders().then(setOrders).catch(() => setOrders([]));
-    reportService.getDashboardOverview().then(setOverview).catch(() => setOverview(null));
-  }, []);
+    if (isStaff) {
+      reportService.getDashboardOverview().then(setOverview).catch(() => setOverview(null));
+    }
+  }, [isStaff]);
+
+  const customerOverview = useMemo<DashboardOverview>(() => {
+    const finalStatuses = new Set(["Delivered", "Cancelled"]);
+    return {
+      total_orders: orders.length,
+      active_shipments: orders.filter((order) => !finalStatuses.has(order.order_status)).length,
+      fleet_available: 0,
+      revenue: orders.reduce((total, order) => total + order.total_price, 0),
+      recent_order_ids: orders.slice(0, 5).map((order) => order.order_id),
+    };
+  }, [orders]);
+
+  const displayedOverview = isStaff ? overview : customerOverview;
 
   // Derived from real order data rather than hardcoded sample values.
   const monthlyOrders = useMemo(() => {
@@ -81,24 +97,24 @@ export function DashboardPage() {
       />
 
       <div className="grid gap-4 xl:grid-cols-4">
-        <StatCard icon="receipt_long" label="Total Orders" note="Current orders in the system" value={String(overview?.total_orders ?? 0)} />
+        <StatCard icon="receipt_long" label="Total Orders" note="Orders visible to this account" value={String(displayedOverview?.total_orders ?? 0)} />
         <StatCard
           icon="local_shipping"
           label="Active Shipments"
           note="Shipments currently moving"
-          value={String(overview?.active_shipments ?? 0)}
+          value={String(displayedOverview?.active_shipments ?? 0)}
         />
         <StatCard
           icon="airport_shuttle"
           label="Fleet Available"
           note="Vehicles ready for assignment"
-          value={String(overview?.fleet_available ?? 0)}
+          value={isStaff ? String(displayedOverview?.fleet_available ?? 0) : "-"}
         />
         <StatCard
           icon="payments"
           label="Revenue"
           note="Recognized payment total"
-          value={`₫${(overview?.revenue ?? 0).toLocaleString("vi-VN")}`}
+          value={`₫${(displayedOverview?.revenue ?? 0).toLocaleString("vi-VN")}`}
         />
       </div>
 

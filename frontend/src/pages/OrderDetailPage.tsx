@@ -55,16 +55,28 @@ export function OrderDetailPage() {
     }
     orderService.getOrderById(orderId).then(setOrderDetails).catch(() => setOrderDetails(null));
     paymentService.getInvoiceByOrder(orderId).then(setInvoice).catch(() => setInvoice(null));
-    fleetService
-      .listAllocations()
-      .then((allocations) => {
-        const found = allocations.find((item) => item.order_id === orderId) ?? null;
-        setAllocation(found);
-        if (found?.track_id) {
-          trackingService.getTrackingHistory(found.track_id).then(setHistory).catch(() => setHistory([]));
-        }
-      })
-      .catch(() => setAllocation(null));
+    if (isStaff) {
+      fleetService
+        .listAllocations()
+        .then((allocations) => {
+          const found = allocations.find((item) => item.order_id === orderId) ?? null;
+          setAllocation(found);
+          if (found?.track_id) {
+            trackingService.getTrackingHistory(found.track_id).then(setHistory).catch(() => setHistory([]));
+          }
+        })
+        .catch(() => setAllocation(null));
+    } else {
+      trackingService
+        .getShipmentByOrder(orderId)
+        .then((shipment) => {
+          setAllocation(null);
+          if (shipment.track_id) {
+            trackingService.getTrackingHistory(shipment.track_id).then(setHistory).catch(() => setHistory([]));
+          }
+        })
+        .catch(() => setHistory([]));
+    }
   };
 
   useEffect(() => {
@@ -133,10 +145,7 @@ export function OrderDetailPage() {
 
   const timelineItems =
     history.length > 0
-      ? history
-          .slice()
-          .reverse()
-          .map((item) => ({
+        ? history.map((item) => ({
             active: true,
             description: item.next_location ? `Heading to ${item.next_location}` : "Checkpoint recorded",
             time: new Date(item.recorded_at).toLocaleString(),

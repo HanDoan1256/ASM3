@@ -10,6 +10,7 @@ from app.schemas.common import ORMModel
 class TrackingHistoryBase(ORMModel):
     current_location: str
     next_location: str | None = None
+    status: str | None = None
 
 
 class TrackingHistoryCreate(TrackingHistoryBase):
