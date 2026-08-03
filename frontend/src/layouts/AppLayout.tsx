@@ -7,13 +7,12 @@ import { Sidebar } from "../components/Sidebar";
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
-  const isAuthenticated = Boolean(localStorage.getItem("smartfm_access_token"));
   const isStaff = localStorage.getItem("smartfm_principal_type") === "staff";
+  
+  // Các trang chỉ dành riêng cho Staff
   const staffOnlyPath = location.pathname === "/fleet" || location.pathname === "/reports";
 
-  if (!isAuthenticated) {
-    return <Navigate replace to="/login" />;
-  }
+ 
   if (staffOnlyPath && !isStaff) {
     return <Navigate replace to="/" />;
   }

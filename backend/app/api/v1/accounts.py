@@ -6,6 +6,9 @@ from app.api.deps import Principal, get_current_principal, get_db
 from app.schemas.account import AddressCreate, AddressRead, AddressUpdate, CustomerRead, CustomerUpdate, AccountHistoryRead
 from app.services.account_service import AccountService
 
+from app.schemas.account import StaffResponse
+from app.services.account_service import AccountService 
+
 router = APIRouter()
 
 
@@ -117,3 +120,14 @@ def get_customer_history(
 ) -> list[AccountHistoryRead]:
     _ensure_customer_self_or_staff(customer_id, principal)
     return AccountService(db).get_account_history(customer_id)
+
+@router.get("/staff/{staff_id}", response_model=StaffResponse)
+def get_staff(
+    staff_id: str,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(get_current_principal),
+) -> StaffResponse:
+    staff = AccountService(db).get_staff(staff_id)
+    if not staff:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Staff not found")
+    return staff

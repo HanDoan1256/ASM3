@@ -1,4 +1,5 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
@@ -8,6 +9,7 @@ import { PageContainer } from "../components/PageContainer";
 import { PageHeader } from "../components/PageHeader";
 import { Select } from "../components/Select";
 import { Textarea } from "../components/Textarea";
+import { Icon } from "../components/Icon";
 import { accountService } from "../services/accountService";
 import type { Address, AddressCreatePayload, AddressUpdatePayload } from "../types/account";
 import { sanitizeVietnamPhone } from "../utils/phone";
@@ -19,11 +21,12 @@ import {
   splitStreetAndWard,
 } from "../utils/vietnamLocations";
 
-interface CustomerProfileState {
-  customer_id: string;
+interface UserProfileState {
+  id: string;
   full_name: string;
   email: string;
   phone: string;
+  role?: string;
 }
 
 interface AddressFormState {
@@ -69,6 +72,8 @@ function findOptionValueByLabel(options: Array<{ label: string; value: string }>
 }
 
 export function AccountPage() {
+  const navigate = useNavigate();
+  
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -78,17 +83,22 @@ export function AccountPage() {
   const [editingAddress, setEditingAddress] = useState<Address | null>(null);
   const [savingAddress, setSavingAddress] = useState(false);
 
-  const [customerData, setCustomerData] = useState<CustomerProfileState>({
-    customer_id: "",
+  const isStaff = localStorage.getItem("smartfm_principal_type") === "staff";
+  const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
+  const isLoggedIn = !!localStorage.getItem("smartfm_access_token");
+
+  const [userData, setUserData] = useState<UserProfileState>({
+    id: "",
     full_name: "",
     email: "",
     phone: "",
+    role: "",
   });
   const [addressForm, setAddressForm] = useState<AddressFormState>(initialAddressForm);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [history, setHistory] = useState<AccountHistoryItem[]>([]);
 
-  const customerId = customerData.customer_id || localStorage.getItem("smartfm_principal_id") || "";
+  const activeId = userData.id || localStorage.getItem("smartfm_principal_id") || "";
 
   const provinceOptions = useMemo(
     () => [{ label: "-- Select City/Province --", value: "" }, ...listVietnamProvinces()],
@@ -103,41 +113,73 @@ export function AccountPage() {
     [addressForm.district_code],
   );
 
-  const loadAddresses = async (activeCustomerId: string) => {
-    const addressData = await accountService.listAddresses(activeCustomerId);
-    setAddresses(Array.isArray(addressData) ? addressData : []);
+  const handleProtectedAction = (actionCallback?: () => void) => {
+    if (!isLoggedIn) {
+      setIsGuestModalOpen(true);
+    } else if (actionCallback) {
+      actionCallback();
+    }
   };
 
-  const loadHistory = async (activeCustomerId: string) => {
-    const historyData = await accountService.getHistory(activeCustomerId);
-    setHistory(Array.isArray(historyData) ? historyData : []);
+  const loadAddresses = async (id: string) => {
+    try {
+      const addressData = await accountService.listAddresses(id);
+      setAddresses(Array.isArray(addressData) ? addressData : []);
+    } catch {
+      setAddresses([]);
+    }
+  };
+
+  const loadHistory = async (id: string) => {
+    try {
+      const historyData = await accountService.getHistory(id);
+      setHistory(Array.isArray(historyData) ? historyData : []);
+    } catch {
+      setHistory([]);
+    }
   };
 
   useEffect(() => {
-    const activeCustomerId = localStorage.getItem("smartfm_principal_id");
+    const principalId = localStorage.getItem("smartfm_principal_id");
 
-    if (!activeCustomerId) {
-      setMessage("No active session found. Please sign in again.");
+    if (!isLoggedIn || !principalId) {
+      setUserData({
+        id: "GUEST-ID-000",
+        full_name: "Guest User",
+        email: "guest@smartfm.com",
+        phone: "N/A",
+        role: "Guest",
+      });
+      setAddresses([]);
+      setHistory([]);
       setLoading(false);
       return;
     }
 
     const loadAccountData = async () => {
       try {
-        const [profileData, addressData, historyData] = await Promise.all([
-          accountService.getCustomer(activeCustomerId),
-          accountService.listAddresses(activeCustomerId),
-          accountService.getHistory(activeCustomerId),
-        ]);
+        if (isStaff) {
+          // GỌI API THỰC TẾ LẤY THÔNG TIN STAFF TỪ DATABASE
+          const staffProfile = await accountService.getStaff(principalId);
+          setUserData({
+            id: staffProfile.staff_id || staffProfile.id || principalId,
+            full_name: staffProfile.full_name || "",
+            email: staffProfile.email || "",
+            phone: staffProfile.phone || "",
+            role: staffProfile.role || "Staff",
+          });
+        } else {
+          const profileData = await accountService.getCustomer(principalId);
+          setUserData({
+            id: profileData.customer_id || principalId,
+            full_name: profileData.full_name || "",
+            email: profileData.email || "",
+            phone: profileData.phone || "",
+          });
+        }
 
-        setCustomerData({
-          customer_id: profileData.customer_id || activeCustomerId,
-          full_name: profileData.full_name || "",
-          email: profileData.email || "",
-          phone: profileData.phone || "",
-        });
-        setAddresses(Array.isArray(addressData) ? addressData : []);
-        setHistory(Array.isArray(historyData) ? historyData : []);
+        await loadAddresses(principalId);
+        await loadHistory(principalId);
       } catch (error) {
         setMessage(extractApiError(error, "Could not load complete account profile from database."));
       } finally {
@@ -146,7 +188,7 @@ export function AccountPage() {
     };
 
     loadAccountData();
-  }, []);
+  }, [isLoggedIn, isStaff]);
 
   const resetAddressForm = () => {
     setAddressForm(initialAddressForm);
@@ -160,30 +202,34 @@ export function AccountPage() {
   };
 
   const openCreateAddressModal = () => {
-    resetAddressForm();
-    setIsAddressModalOpen(true);
+    handleProtectedAction(() => {
+      resetAddressForm();
+      setIsAddressModalOpen(true);
+    });
   };
 
   const openEditAddressModal = (address: Address) => {
-    const provinces = listVietnamProvinces();
-    const cityCode = findOptionValueByLabel(provinces, address.city);
-    const districts = listVietnamDistricts(cityCode);
-    const districtCode = findOptionValueByLabel(districts, address.district);
-    const { streetLine, ward } = splitStreetAndWard(address.street);
+    handleProtectedAction(() => {
+      const provinces = listVietnamProvinces();
+      const cityCode = findOptionValueByLabel(provinces, address.city);
+      const districts = listVietnamDistricts(cityCode);
+      const districtCode = findOptionValueByLabel(districts, address.district);
+      const { streetLine, ward } = splitStreetAndWard(address.street);
 
-    setEditingAddress(address);
-    setAddressForm({
-      receiver_name: address.receiver_name,
-      receiver_phone: sanitizeVietnamPhone(address.receiver_phone),
-      street_line: streetLine,
-      city_code: cityCode,
-      district_code: districtCode,
-      ward,
-      postal_code: address.postal_code || "",
-      is_default: Boolean(address.is_default),
+      setEditingAddress(address);
+      setAddressForm({
+        receiver_name: address.receiver_name,
+        receiver_phone: sanitizeVietnamPhone(address.receiver_phone),
+        street_line: streetLine,
+        city_code: cityCode,
+        district_code: districtCode,
+        ward,
+        postal_code: address.postal_code || "",
+        is_default: Boolean(address.is_default),
+      });
+      setAddressError("");
+      setIsAddressModalOpen(true);
     });
-    setAddressError("");
-    setIsAddressModalOpen(true);
   };
 
   const syncSingleDefaultAddress = async (nextDefaultAddressId?: number) => {
@@ -227,7 +273,7 @@ export function AccountPage() {
 
   const handleProfileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
-    setCustomerData((current) => ({ ...current, [name]: value }));
+    setUserData((current) => ({ ...current, [name]: value }));
   };
 
   const handleAddressFieldChange = (field: keyof AddressFormState, value: string | boolean) => {
@@ -236,12 +282,22 @@ export function AccountPage() {
 
   const handleSaveProfile = async () => {
     try {
-      await accountService.updateCustomer(customerData.customer_id, {
-        full_name: customerData.full_name,
-        phone: customerData.phone,
-      });
-      setMessage("Profile successfully updated.");
-      await loadHistory(customerData.customer_id);
+      if (isStaff) {
+        if (typeof (accountService as any).updateStaff === "function") {
+          await (accountService as any).updateStaff(userData.id, {
+            full_name: userData.full_name,
+            phone: userData.phone,
+          });
+        }
+        setMessage("Staff profile successfully updated.");
+      } else {
+        await accountService.updateCustomer(userData.id, {
+          full_name: userData.full_name,
+          phone: userData.phone,
+        });
+        setMessage("Profile successfully updated.");
+        await loadHistory(userData.id);
+      }
       setIsEditingProfile(false);
     } catch (error) {
       setMessage(extractApiError(error, "Network error while saving profile changes."));
@@ -257,7 +313,9 @@ export function AccountPage() {
     }
 
     try {
-      await accountService.deleteCustomer(customerData.customer_id);
+      if (!isStaff) {
+        await accountService.deleteCustomer(userData.id);
+      }
       localStorage.clear();
       window.location.href = "/login";
     } catch (error) {
@@ -272,7 +330,7 @@ export function AccountPage() {
       setAddressError(validationError);
       return;
     }
-    if (!customerId) {
+    if (!activeId) {
       setAddressError("No active session found. Please sign in again.");
       return;
     }
@@ -291,11 +349,11 @@ export function AccountPage() {
         await accountService.updateAddress(editingAddress.address_id, payload);
         setMessage("Address updated successfully.");
       } else {
-        await accountService.createAddress(customerId, payload as AddressCreatePayload);
+        await accountService.createAddress(activeId, payload as AddressCreatePayload);
         setMessage("Address added successfully.");
       }
 
-      await loadAddresses(customerId);
+      await loadAddresses(activeId);
       closeAddressModal();
     } catch (error) {
       setAddressError(extractApiError(error, "Could not save the address. Please try again."));
@@ -305,33 +363,37 @@ export function AccountPage() {
   };
 
   const handleDeleteAddress = async (addressId: number) => {
-    const confirmDelete = window.confirm("Delete this saved address?");
-    if (!confirmDelete || !customerId) {
-      return;
-    }
+    handleProtectedAction(async () => {
+      const confirmDelete = window.confirm("Delete this saved address?");
+      if (!confirmDelete || !activeId) {
+        return;
+      }
 
-    try {
-      await accountService.deleteAddress(addressId);
-      await loadAddresses(customerId);
-      setMessage("Address deleted successfully.");
-    } catch (error) {
-      setMessage(extractApiError(error, "Could not delete the address. Please try again."));
-    }
+      try {
+        await accountService.deleteAddress(addressId);
+        await loadAddresses(activeId);
+        setMessage("Address deleted successfully.");
+      } catch (error) {
+        setMessage(extractApiError(error, "Could not delete the address. Please try again."));
+      }
+    });
   };
 
   const handleSetDefaultAddress = async (address: Address) => {
-    if (!customerId || address.is_default) {
-      return;
-    }
+    handleProtectedAction(async () => {
+      if (!activeId || address.is_default) {
+        return;
+      }
 
-    try {
-      await syncSingleDefaultAddress(address.address_id);
-      await accountService.updateAddress(address.address_id, { is_default: true });
-      await loadAddresses(customerId);
-      setMessage("Default address updated successfully.");
-    } catch (error) {
-      setMessage(extractApiError(error, "Could not update the default address."));
-    }
+      try {
+        await syncSingleDefaultAddress(address.address_id);
+        await accountService.updateAddress(address.address_id, { is_default: true });
+        await loadAddresses(activeId);
+        setMessage("Default address updated successfully.");
+      } catch (error) {
+        setMessage(extractApiError(error, "Could not update the default address."));
+      }
+    });
   };
 
   if (loading) {
@@ -345,12 +407,13 @@ export function AccountPage() {
   return (
     <PageContainer>
       <PageHeader
-        eyebrow="Account"
-        description="Manage your customer profile and saved delivery addresses."
+        eyebrow="Account Management"
+        description="Manage your personal profile, role permissions, activity history, and saved delivery addresses."
         title="Account Settings"
       />
 
       <div className="space-y-6">
+        {/* Profile Details Card */}
         <Card className="p-6 space-y-6">
           {message && (
             <div
@@ -366,10 +429,10 @@ export function AccountPage() {
 
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <p className="text-sm font-medium text-text-secondary">Customer ID</p>
+              <p className="text-sm font-medium text-text-secondary">User ID</p>
               <input
                 type="text"
-                value={customerData.customer_id}
+                value={userData.id}
                 disabled
                 className="mt-1 w-full cursor-not-allowed rounded-xl border border-border bg-gray-100 p-2.5 font-mono text-xs text-gray-500"
               />
@@ -379,7 +442,7 @@ export function AccountPage() {
               <input
                 type="text"
                 name="full_name"
-                value={customerData.full_name}
+                value={userData.full_name}
                 onChange={handleProfileChange}
                 disabled={!isEditingProfile}
                 className={`mt-1 w-full rounded-xl border border-border p-2.5 text-sm font-semibold text-text-primary ${
@@ -392,7 +455,7 @@ export function AccountPage() {
               <input
                 type="email"
                 name="email"
-                value={customerData.email}
+                value={userData.email}
                 onChange={handleProfileChange}
                 disabled
                 className="mt-1 w-full cursor-not-allowed rounded-xl border border-border bg-gray-50 p-2.5 text-sm font-semibold text-text-primary"
@@ -403,7 +466,7 @@ export function AccountPage() {
               <input
                 type="text"
                 name="phone"
-                value={customerData.phone}
+                value={userData.phone}
                 onChange={handleProfileChange}
                 disabled={!isEditingProfile}
                 className={`mt-1 w-full rounded-xl border border-border p-2.5 text-sm font-semibold text-text-primary ${
@@ -411,6 +474,17 @@ export function AccountPage() {
                 }`}
               />
             </div>
+            {userData.role && (
+              <div>
+                <p className="text-sm font-medium text-text-secondary">Staff Role / Department</p>
+                <input
+                  type="text"
+                  value={userData.role}
+                  disabled
+                  className="mt-1 w-full cursor-not-allowed rounded-xl border border-border bg-gray-50 p-2.5 text-sm font-semibold text-text-primary"
+                />
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between border-t border-border pt-4">
@@ -425,22 +499,25 @@ export function AccountPage() {
               </div>
             ) : (
               <div className="flex w-full justify-between">
-                <Button variant="secondary" onClick={() => setIsEditingProfile(true)}>
+                <Button variant="secondary" onClick={() => handleProtectedAction(() => setIsEditingProfile(true))}>
                   Edit Profile
                 </Button>
-                <Button className="border-transparent bg-red-600 text-white hover:bg-red-700" onClick={handleDeleteAccount}>
-                  Delete Account
-                </Button>
+                {!isStaff && (
+                  <Button className="border-transparent bg-red-600 text-white hover:bg-red-700" onClick={() => handleProtectedAction(handleDeleteAccount)}>
+                    Delete Account
+                  </Button>
+                )}
               </div>
             )}
           </div>
         </Card>
 
+        {/* Activity History Card (Hiện cho cả Staff và Customer) */}
         <Card className="p-6">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-bold text-text-primary">Activity History</h3>
-              <p className="mt-1 text-sm text-text-secondary">Review the recent changes made to your profile.</p>
+              <p className="mt-1 text-sm text-text-secondary">Review recent modifications and log entries.</p>
             </div>
 
             <Button variant="secondary" onClick={() => setShowHistory(!showHistory)}>
@@ -463,7 +540,7 @@ export function AccountPage() {
                   ))
                 ) : (
                   <p className="mt-4 rounded-xl border border-dashed border-border bg-gray-50 py-6 text-center text-sm text-gray-400">
-                    No recent profile changes found.
+                    No recent activity history found.
                   </p>
                 )}
               </div>
@@ -471,6 +548,7 @@ export function AccountPage() {
           )}
         </Card>
 
+        {/* Saved Delivery Addresses Card (Hiện cho cả Staff và Customer) */}
         <Card className="space-y-4 p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -528,6 +606,7 @@ export function AccountPage() {
         </Card>
       </div>
 
+      {/* Address Form Modal */}
       <Modal
         isOpen={isAddressModalOpen}
         onClose={closeAddressModal}
@@ -610,6 +689,38 @@ export function AccountPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Guest Mode Authentication Required Modal */}
+      <Modal
+        isOpen={isGuestModalOpen}
+        onClose={() => setIsGuestModalOpen(false)}
+        title="Authentication Required"
+      >
+        <div className="py-4 text-center space-y-5">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-600 shadow-inner">
+            <Icon className="text-3xl" name="lock" />
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-lg font-bold text-text-primary">Sign in required</h3>
+            <p className="text-sm text-text-secondary max-w-xs mx-auto leading-relaxed">
+              Please sign in or register an account to modify account settings or manage addresses.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 pt-3">
+            <Button variant="secondary" onClick={() => setIsGuestModalOpen(false)}>
+              Close & Keep Viewing
+            </Button>
+            <Button
+              onClick={() => {
+                setIsGuestModalOpen(false);
+                navigate("/login");
+              }}
+            >
+              Go to Login
+            </Button>
+          </div>
+        </div>
       </Modal>
     </PageContainer>
   );

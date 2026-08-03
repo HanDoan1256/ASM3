@@ -1,5 +1,4 @@
 import { NavLink } from "react-router-dom";
-
 import { Icon } from "./Icon";
 import logo from "./logo.png";
 
@@ -16,11 +15,20 @@ const navigation = [
   { icon: "person", label: "Account", to: "/account" },
   { icon: "airport_shuttle", label: "Fleet", to: "/fleet", staffOnly: true },
   { icon: "bar_chart", label: "Reports", to: "/reports", staffOnly: true },
-  { icon: "logout", label: "Logout", to: "/login" },
+  { icon: "logout", label: "Logout", isLogout: true },
 ];
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const isStaff = localStorage.getItem("smartfm_principal_type") === "staff";
+  const isLoggedIn = !!localStorage.getItem("smartfm_access_token");
+
+  const handleLogout = () => {
+    localStorage.removeItem("smartfm_principal_id");
+    localStorage.removeItem("smartfm_principal_type");
+    localStorage.removeItem("smartfm_principal_role");
+    localStorage.removeItem("smartfm_access_token");
+    window.location.href = "/login"; // Hard reload để xóa memory
+  };
 
   return (
     <>
@@ -35,21 +43,43 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         </div>
 
         <nav className="mt-6 space-y-2">
-            {navigation.filter((item) => !item.staffOnly || isStaff).map((item) => (
-            <NavLink
-              key={item.to}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition ${
-                  isActive ? "bg-brand-50 text-brand-700" : "text-text-secondary hover:bg-brand-50 hover:text-text-primary"
-                }`
+          {navigation
+            .filter((item) => !item.staffOnly || isStaff)
+            .map((item) => {
+              if (item.isLogout) {
+                // Giấu nút Logout nếu là Guest
+                if (!isLoggedIn) return null;
+                
+                return (
+                  <button
+                    key={item.label}
+                    onClick={handleLogout}
+                    className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-text-secondary transition hover:bg-danger/10 hover:text-danger"
+                  >
+                    <Icon name={item.icon} className="text-[20px]" />
+                    {item.label}
+                  </button>
+                );
               }
-              onClick={onClose}
-              to={item.to}
-            >
-              <Icon className="text-[20px]" name={item.icon} />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+
+              return (
+                <NavLink
+                  key={item.label}
+                  to={item.to!}
+                  onClick={onClose}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition ${
+                      isActive
+                        ? "bg-brand-50 text-brand-700"
+                        : "text-text-secondary hover:bg-brand-50 hover:text-brand-600"
+                    }`
+                  }
+                >
+                  <Icon name={item.icon} className="text-[20px]" />
+                  {item.label}
+                </NavLink>
+              );
+            })}
         </nav>
       </aside>
     </>

@@ -1,9 +1,8 @@
 from sqlalchemy.orm import Session
-
+from app.repositories.staff_repository import StaffRepository
 from app.models.address import Address
 from app.repositories.address_repository import AddressRepository
 from app.repositories.customer_repository import CustomerRepository
-
 from app.repositories.account_history_repository import AccountHistoryRepository
 from app.schemas.account import AddressCreate, AddressUpdate, CustomerUpdate
 
@@ -12,9 +11,8 @@ class AccountService:
     def __init__(self, db: Session) -> None:
         self.address_repository = AddressRepository(db)
         self.customer_repository = CustomerRepository(db)
-       
         self.history_repository = AccountHistoryRepository(db)
-
+        self.staff_repository = StaffRepository(db)
     def get_customer(self, customer_id: str):
         return self.customer_repository.get_by_id(customer_id)
 
@@ -39,13 +37,13 @@ class AccountService:
         return updated_customer
 
     def delete_customer(self, customer_id: str) -> bool:
+       
         customer = self.customer_repository.get_by_id(customer_id)
         if not customer:
             return False
-        customer.status = "Deleted"
-        updated_customer = self.customer_repository.update(customer)
-        self.history_repository.create(customer_id=customer_id, action="Account deleted")
-        return updated_customer is not None
+        
+        self.customer_repository.delete(customer)
+        return True
 
     def list_addresses(self, customer_id: str):
         return self.address_repository.list_by_customer_id(customer_id)
@@ -62,9 +60,6 @@ class AccountService:
             setattr(address, field, value)
         return self.address_repository.update(address)
 
-    def get_address(self, address_id: int):
-        return self.address_repository.get_by_id(address_id)
-
     def delete_address(self, address_id: int) -> bool:
         address = self.address_repository.get_by_id(address_id)
         if not address:
@@ -74,3 +69,6 @@ class AccountService:
 
     def get_account_history(self, customer_id: str):
         return self.history_repository.get_by_customer_id(customer_id)
+
+    def get_staff(self, staff_id: str):
+        return self.staff_repository.get_by_id(staff_id)

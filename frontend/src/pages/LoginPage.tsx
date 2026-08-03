@@ -3,32 +3,37 @@ import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icon";
 import { Input } from "../components/Input";
+import { Modal } from "../components/Modal";
 import { authService } from "../services/authService";
 
 export function LoginPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState(""); // 1. Thêm State lưu số điện thoại
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   
+  // State for tracking account not found condition
+  const [accountNotFound, setAccountNotFound] = useState(false);
+  
+  const [showWelcomeModal, setShowWelcomeModal] = useState(true);
   const navigate = useNavigate();
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setMessage("");
     setError("");
+    setAccountNotFound(false);
 
     try {
       if (mode === "register") {
-        // 2. Truyền phone vào payload để gửi xuống Backend
         const result = await authService.register({ 
           email, 
           full_name: fullName, 
           password, 
-          phone // Đảm bảo authService và Backend của bạn nhận trường này
+          phone 
         });
         setMessage(`Registered ${result.email} successfully. Please switch to Login tab.`);
       } else {
@@ -43,15 +48,28 @@ export function LoginPage() {
           setMessage("Login successful! Redirecting to account...");
 
           setTimeout(() => {
-            navigate("/");
+            window.location.href = "/"; // Hard reload to clear guest state completely
           }, 500);
-        } else {
-          setError("Invalid email or password.");
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError("Authentication request failed. Please confirm the backend is running.");
+      
+      // Read error detail from backend FastAPI response
+      const errorDetail = err.response?.data?.detail?.toLowerCase() || "";
+
+      // CLASSIFY ERRORS PER REQUIREMENTS:
+      if (errorDetail.includes("not found") || errorDetail.includes("không tìm thấy")) {
+        setError("Account with this email address was not found. ");
+        setAccountNotFound(true); // Trigger option to switch to registration
+      } 
+      else if (errorDetail.includes("password") || errorDetail.includes("mật khẩu")) {
+        setError("Incorrect password. Please verify and try again.");
+      } 
+      else {
+        // Fallback for other server errors
+        setError("Authentication failed. Please verify your connection.");
+      }
     }
   };
 
@@ -100,7 +118,7 @@ export function LoginPage() {
                 className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${
                   mode === "login" ? "bg-white text-text-primary shadow-sm" : "text-text-secondary"
                 }`}
-                onClick={() => setMode("login")}
+                onClick={() => { setMode("login"); setError(""); setAccountNotFound(false); }}
                 type="button"
               >
                 Login
@@ -109,7 +127,7 @@ export function LoginPage() {
                 className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${
                   mode === "register" ? "bg-white text-text-primary shadow-sm" : "text-text-secondary"
                 }`}
-                onClick={() => setMode("register")}
+                onClick={() => { setMode("register"); setError(""); setAccountNotFound(false); }}
                 type="button"
               >
                 Register
@@ -119,9 +137,26 @@ export function LoginPage() {
             <form className="space-y-4" onSubmit={handleSubmit}>
               {mode === "register" && (
                 <>
-                  <Input label="Full Name" placeholder="Alex Morgan" value={fullName} onChange={(event) => setFullName(event.target.value)} required />
-                  {/* 3. Thêm ô nhập số điện thoại chỉ xuất hiện khi ở chế độ Register */}
-                  <Input label="Phone Number" placeholder="0912345678" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} required />
+                  <Input 
+                    label="Full Name" 
+                    placeholder="Alex Morgan" 
+                    value={fullName} 
+                    onChange={(event) => setFullName(event.target.value)} 
+                    required 
+                  />
+                  <Input 
+                    label="Phone Number" 
+                    placeholder="0912345678" 
+                    type="tel" 
+                    maxLength={10}
+                    pattern="[0-9]{10}"
+                    value={phone} 
+                    onChange={(event) => {
+                      const numericValue = event.target.value.replace(/\D/g, "").slice(0, 10);
+                      setPhone(numericValue);
+                    }} 
+                    required 
+                  />
                 </>
               )}
               <Input label="Email Address" placeholder="team@smartfm.com" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
@@ -132,9 +167,22 @@ export function LoginPage() {
               </Button>
             </form>
 
+            {/* ERROR DISPLAY WITH ACCOUNT CREATION REDIRECTION PROMPT */}
             {(message || error) && (
               <div className={`mt-5 rounded-2xl px-4 py-3 text-sm ${error ? "bg-danger/10 text-danger" : "bg-success/10 text-success"}`}>
-                {error || message}
+                <span>{error || message}</span>
+                {accountNotFound && (
+                  <span 
+                    className="ml-1 cursor-pointer font-bold text-brand-600 underline hover:text-brand-700"
+                    onClick={() => {
+                      setMode("register");
+                      setError("");
+                      setAccountNotFound(false);
+                    }}
+                  >
+                    Would you like to create a new account?
+                  </span>
+                )}
               </div>
             )}
 
@@ -148,6 +196,41 @@ export function LoginPage() {
           </div>
         </section>
       </div>
+
+      <Modal isOpen={showWelcomeModal} onClose={() => setShowWelcomeModal(false)} title="">
+        <div className="py-6 px-2 text-center space-y-6">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-50 text-brand-600 shadow-inner">
+            <Icon className="text-3xl" name="local_shipping" />
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-2xl font-bold text-text-primary">Welcome to SmartFM</h3>
+            <p className="text-sm text-text-secondary max-w-xs mx-auto leading-relaxed">
+              Do you already have an account with us, or would you like to set up a new one?
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            <Button
+              className="w-full py-3 rounded-2xl font-semibold shadow-md"
+              onClick={() => {
+                setMode("login");
+                setShowWelcomeModal(false);
+              }}
+            >
+              Sign In
+            </Button>
+            <Button
+              variant="secondary"
+              className="w-full py-3 rounded-2xl font-semibold border-border hover:bg-gray-50"
+              onClick={() => {
+                setMode("register");
+                setShowWelcomeModal(false);
+              }}
+            >
+              Create Account
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -22,10 +22,10 @@ class CustomerRepository(BaseRepository[Customer]):
         return customer
 
     def delete_account(self, customer_id: str) -> bool:
-        """Legacy method retained for callers; account deletion is soft delete."""
+        """Permanently deletes the customer row from the database."""
         customer = self.get_by_id(customer_id)
         if customer:
-            customer.status = "Deleted"
+            self.db.delete(customer)  # This physically deletes the row
             self.db.commit()
             return True
         return False

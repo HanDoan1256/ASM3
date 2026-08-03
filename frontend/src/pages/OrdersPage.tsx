@@ -13,6 +13,9 @@ import type { OrderSummary } from "../types/order";
 
 export function OrdersPage() {
   const [orders, setOrders] = useState<OrderSummary[]>([]);
+  
+  // Kiểm tra xem tài khoản đang đăng nhập có phải là staff hay không (nếu vẫn cần dùng ở chỗ khác)
+  const isStaff = localStorage.getItem("smartfm_principal_type") === "staff";
 
   useEffect(() => {
     orderService.listOrders().then(setOrders).catch(() => setOrders([]));
@@ -26,6 +29,8 @@ export function OrdersPage() {
           description="Manage freight orders in a structured operational table with shipment status, customer references, and direct access to order details."
           title="Orders"
         />
+        
+        {/* CẢ CUSTOMER VÀ STAFF ĐỀU THẤY NÚT NÀY */}
         <Link
           className="inline-flex shrink-0 items-center gap-2 rounded-2xl bg-brand-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-600"
           to="/orders/create"
@@ -34,18 +39,12 @@ export function OrdersPage() {
         </Link>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_220px_220px]">
-        <SearchBar placeholder="Search by tracking number, sender, or receiver" />
-        <div className="rounded-2xl border border-border bg-white px-4 py-3 text-sm text-text-secondary">Filter: All Services</div>
-        <div className="rounded-2xl border border-border bg-white px-4 py-3 text-sm text-text-secondary">Sort: Latest First</div>
-      </div>
-
       {orders.length > 0 ? (
         <>
           <Table
             columns={[
               {
-                header: "Order",
+                header: "Order ID",
                 render: (order) => (
                   <div>
                     <p className="font-semibold text-text-primary">{order.order_id}</p>

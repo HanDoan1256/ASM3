@@ -58,3 +58,12 @@ class CustomerRead(CustomerBase):
 class AccountHistoryRead(ORMModel):
     action: str
     created_at: datetime
+
+class StaffResponse(ORMModel):
+    staff_id: str
+    full_name: str
+    email: EmailStr
+    phone: str | None = None
+    role: str
+    status: str | None = None
+    branch_id: str | None = None

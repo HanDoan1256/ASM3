@@ -45,4 +45,14 @@ export const accountService = {
     const response = await api.get(`/accounts/customers/${customerId}/history`);
     return response.data;
   },
+
+  getStaff: async (id: string) => {
+    const response = await api.get(`/accounts/staff/${id}`);
+    return response.data;
+  },
+
+  updateStaff: async (staffId: string, payload: { full_name?: string; phone?: string }) => {
+    const response = await api.put(`/accounts/staff/${staffId}`, payload);
+    return response.data;
+  }
 };
