@@ -89,11 +89,12 @@ def list_allocations(
 @router.post("/orders/{order_id}/allocate", response_model=MessageResponse)
 def allocate_order(
     order_id: str,
+    branch_id: str | None = None,
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_staff),
 ) -> MessageResponse:
     try:
-        FleetAllocationService(db).allocate_resources(order_id)
+        FleetAllocationService(db).allocate_resources(order_id, branch_id=branch_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return MessageResponse(message=f"Order {order_id} allocated")

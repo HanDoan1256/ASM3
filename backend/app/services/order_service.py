@@ -189,7 +189,7 @@ class OrderService:
             tax=0,
             total=total_price,
             invoice_date=datetime.now(timezone.utc),
-            status=PAYMENT_PENDING,
+            status="UNPAID",
             payment_method=payload.payment_method,
         )
         self.db.add(invoice)

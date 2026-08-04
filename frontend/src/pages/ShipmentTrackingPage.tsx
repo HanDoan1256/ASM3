@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Card } from "../components/Card";
-import { MapCard } from "../components/MapCard";
 import { PageContainer } from "../components/PageContainer";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
@@ -13,8 +12,6 @@ import type { Allocation } from "../types/fleet";
 import type { OrderDetailResponse } from "../types/order";
 import type { ShipmentRecord, TrackingHistoryItem, TrackingRecord } from "../types/tracking";
 
-const TRACKING_STATUS_OPTIONS = ["Created", "Assigned", "Picked Up", "In Transit", "Delivered"];
-
 export function ShipmentTrackingPage() {
   const [searchCode, setSearchCode] = useState<string>("");
   const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
@@ -25,14 +22,10 @@ export function ShipmentTrackingPage() {
   const [orderDetails, setOrderDetails] = useState<OrderDetailResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [eventStatus, setEventStatus] = useState<string>(TRACKING_STATUS_OPTIONS[0]);
-  const [eventLocation, setEventLocation] = useState<string>("");
-  const [eventNextLocation, setEventNextLocation] = useState<string>("");
-  const [eventSubmitting, setEventSubmitting] = useState<boolean>(false);
-  const [eventError, setEventError] = useState<string | null>(null);
+  const [isPendingOrder, setIsPendingOrder] = useState<boolean>(false);
   const isStaff = localStorage.getItem("smartfm_principal_type") === "staff";
 
-  // Initial load: Fetch default allocation if no manual search code is active
+  // Initial load: Fetch active shipment or fleet allocation
   useEffect(() => {
     if (!isStaff) {
       orderService
@@ -68,7 +61,7 @@ export function ShipmentTrackingPage() {
       .catch(() => setAllocation(null));
   }, [isStaff]);
 
-  // Fetch tracking and history whenever activeTrackId changes
+  // Fetch tracking metadata and historical checkpoints whenever activeTrackId changes
   useEffect(() => {
     if (!activeTrackId) {
       setTracking(null);
@@ -78,6 +71,7 @@ export function ShipmentTrackingPage() {
 
     setLoading(true);
     setError(null);
+    setIsPendingOrder(false);
 
     trackingService
       .getTracking(activeTrackId)
@@ -87,82 +81,121 @@ export function ShipmentTrackingPage() {
       })
       .then((historyData) => setHistory(historyData))
       .catch((err: any) => {
-        setError(err.response?.data?.detail || "Shipment tracking number not found.");
-        setTracking(null);
-        setHistory([]);
+        if (err?.response?.status === 404 && isPendingOrder) {
+          setTracking(null);
+          setHistory([]);
+        } else {
+          setError(err.response?.data?.detail || "Shipment tracking number not found.");
+          setTracking(null);
+          setHistory([]);
+        }
       })
       .finally(() => setLoading(false));
-  }, [activeTrackId]);
+  }, [activeTrackId, isPendingOrder]);
 
-  // Fetch linked order/shipment details if allocation exists
-  useEffect(() => {
-    if (!allocation || !isStaff) return;
-
-    trackingService.getShipment(allocation.shipment_id).then(setShipment).catch(() => setShipment(null));
-    orderService.getOrderById(allocation.order_id).then(setOrderDetails).catch(() => setOrderDetails(null));
-  }, [allocation, isStaff]);
-
-  // Handle manual tracking lookup
-  const handleSearchSubmit = (e: React.FormEvent) => {
+  // Handle manual tracking code or Order ID lookup
+  const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = searchCode.trim();
     if (!trimmed) return;
 
-    setActiveTrackId(trimmed);
-  };
+    setLoading(true);
+    setError(null);
+    setIsPendingOrder(false);
+    setTracking(null);
+    setHistory([]);
+    setShipment(null);
+    setOrderDetails(null);
 
-  // Staff-only: post a new tracking event for the active track ID.
-  const handleAddEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeTrackId || !eventLocation.trim()) return;
+    let resolvedTrackId = trimmed;
 
-    setEventSubmitting(true);
-    setEventError(null);
     try {
-      const updated = await trackingService.updateTrackingEvent(activeTrackId, {
-        status: eventStatus,
-        current_location: eventLocation.trim(),
-        next_location: eventNextLocation.trim() || undefined,
-      });
-      setTracking(updated);
-      const historyData = await trackingService.getTrackingHistory(activeTrackId);
-      setHistory(historyData);
-      setEventLocation("");
-      setEventNextLocation("");
+      // If user inputs an Order ID (starting with ORD-)
+      if (trimmed.toUpperCase().startsWith("ORD-")) {
+        try {
+          const detail = await orderService.getOrderById(trimmed);
+          setOrderDetails(detail);
+        } catch {
+          // Ignore
+        }
+
+        try {
+          const shipmentData = await trackingService.getShipmentByOrder(trimmed);
+          if (shipmentData?.track_id) {
+            resolvedTrackId = shipmentData.track_id;
+            setShipment(shipmentData);
+            setActiveTrackId(resolvedTrackId);
+            return;
+          }
+        } catch {
+          // If no shipment/tracking is found, the order is still pending approval/allocation
+          setIsPendingOrder(true);
+          setActiveTrackId(null);
+          setLoading(false);
+          return;
+        }
+      }
+
+      setActiveTrackId(resolvedTrackId);
     } catch (err: any) {
-      setEventError(err.response?.data?.detail || "Failed to add tracking event.");
+      setError(err.response?.data?.detail || "Failed to resolve shipment tracking details.");
     } finally {
-      setEventSubmitting(false);
+      setLoading(false);
     }
   };
 
   const timelineItems = useMemo(
     () =>
-      history.length > 0
+      isPendingOrder
+        ? [
+            {
+              active: true,
+              description: "This order is currently pending staff review, approval, and vehicle resource allocation.",
+              time: "Awaiting Processing",
+              title: "Order Awaiting Approval",
+            },
+          ]
+        : history.length > 0
         ? history.map((item, index) => ({
             active: index === 0,
             description: item.next_location
-              ? `Shipment progressed from ${item.current_location} toward ${item.next_location}.`
-              : `Shipment recorded at ${item.current_location}.`,
+              ? `Origin / Current Location: ${item.current_location} → Processing Hub: ${item.next_location}`
+              : `Current Location: ${item.current_location}`,
             time: new Date(item.recorded_at).toLocaleString(),
-            title: item.status ?? "Tracking Update",
+            title: item.status ?? "Tracking Event",
           }))
         : [
             {
               active: true,
-              description: "No tracking history is currently available for the selected shipment.",
+              description: "No tracking history is currently recorded for this shipment.",
               time: "-",
               title: "No Updates",
             },
           ],
-    [history, tracking?.status]
+    [history, isPendingOrder]
   );
+
+  const senderFullAddress = useMemo(() => {
+    return (
+      [orderDetails?.sender_address?.street, orderDetails?.sender_address?.district, orderDetails?.sender_address?.city]
+        .filter(Boolean)
+        .join(", ") || "-"
+    );
+  }, [orderDetails]);
+
+  const receiverFullAddress = useMemo(() => {
+    return (
+      [orderDetails?.receiver_address?.street, orderDetails?.receiver_address?.district, orderDetails?.receiver_address?.city]
+        .filter(Boolean)
+        .join(", ") || "-"
+    );
+  }, [orderDetails]);
 
   return (
     <PageContainer>
       <PageHeader
         eyebrow="Shipment Tracking"
-        description="Track freight progress through timeline events, current delivery state, and a route map placeholder aligned with the provided logistics tracking inspiration."
+        description="Monitor automated package transit milestones and delivery checkpoints updated via fleet allocation."
         title="SmartFM Tracking"
       />
 
@@ -172,7 +205,7 @@ export function ShipmentTrackingPage() {
           <input
             type="text"
             className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            placeholder="Enter Tracking Number (e.g., TRK-100234)..."
+            placeholder="Enter Tracking Number (e.g., TRK-...) or Order ID (e.g., ORD-...)"
             value={searchCode}
             onChange={(e) => setSearchCode(e.target.value)}
           />
@@ -187,23 +220,25 @@ export function ShipmentTrackingPage() {
         {error && <p className="mt-2 text-xs font-medium text-red-600">{error}</p>}
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-        <div className="space-y-4">
+      {(activeTrackId || isPendingOrder || orderDetails) && (
+        <div className="space-y-6">
+          {/* Active Status Card */}
           <Card className="p-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
-                <p className="text-sm text-text-secondary">Tracking Number</p>
-                <h3 className="mt-2 text-2xl font-semibold text-text-primary">
-                  {tracking?.track_id ?? activeTrackId ?? "Not assigned"}
+                <p className="text-sm text-text-secondary">Tracking Number / Status</p>
+                <h3 className="mt-1 text-2xl font-semibold text-text-primary">
+                  {isPendingOrder ? "Order Awaiting Processing" : (tracking?.track_id ?? activeTrackId ?? "Not assigned")}
                 </h3>
               </div>
-              <StatusBadge status={tracking?.status ?? shipment?.shipment_status ?? "Pending"} />
+              <StatusBadge status={isPendingOrder ? "Pending Approval" : (tracking?.status ?? shipment?.shipment_status ?? orderDetails?.order.order_status ?? "Pending")} />
             </div>
+
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <div>
-                <p className="text-sm text-text-secondary">Current Status</p>
+                <p className="text-sm text-text-secondary">Current Location / Status</p>
                 <p className="mt-1 font-semibold text-text-primary">
-                  {tracking?.current_location ?? "Tracking unavailable"}
+                  {isPendingOrder ? "Awaiting staff review and vehicle allocation" : (tracking?.current_location ?? senderFullAddress)}
                 </p>
               </div>
               <div>
@@ -223,93 +258,42 @@ export function ShipmentTrackingPage() {
             </div>
           </Card>
 
+          {/* Shipment Metadata Details */}
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-text-primary">Shipment Details</h3>
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div>
-                <p className="text-sm text-text-secondary">Origin</p>
-                <p className="mt-1 text-sm leading-6 text-text-primary">
-                  {[orderDetails?.sender_address?.street, orderDetails?.sender_address?.city]
-                    .filter(Boolean)
-                    .join(", ") || "-"}
-                </p>
+                <p className="text-sm text-text-secondary">Sender Location (Origin)</p>
+                <p className="mt-1 text-sm font-medium text-text-primary">{senderFullAddress}</p>
               </div>
               <div>
-                <p className="text-sm text-text-secondary">Destination</p>
-                <p className="mt-1 text-sm leading-6 text-text-primary">
-                  {[orderDetails?.receiver_address?.street, orderDetails?.receiver_address?.city]
-                    .filter(Boolean)
-                    .join(", ") || "-"}
-                </p>
+                <p className="text-sm text-text-secondary">Receiver Location (Destination)</p>
+                <p className="mt-1 text-sm font-medium text-text-primary">{receiverFullAddress}</p>
               </div>
               <div>
-                <p className="text-sm text-text-secondary">Service Type</p>
+                <p className="text-sm text-text-secondary">Service Option</p>
                 <p className="mt-1 text-sm font-semibold text-text-primary">
                   {orderDetails?.service_option?.service_name ?? "-"}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-text-secondary">Vehicle</p>
+                <p className="text-sm text-text-secondary">Assigned Fleet Vehicle</p>
                 <p className="mt-1 text-sm font-semibold text-text-primary">
-                  {shipment?.vehicle_id ?? allocation?.vehicle_id ?? "-"}
+                  {shipment?.vehicle_id ?? allocation?.vehicle_id ?? "Not Assigned Yet"}
                 </p>
               </div>
             </div>
           </Card>
 
+          {/* Tracking Timeline */}
           <Card className="p-6">
-            <h3 className="text-lg font-semibold text-text-primary">Tracking History</h3>
+            <h3 className="text-lg font-semibold text-text-primary">Automated Tracking History</h3>
             <div className="mt-5">
               <Timeline items={timelineItems} />
             </div>
           </Card>
-
-          {isStaff && activeTrackId && (
-            <Card className="p-6">
-              <h3 className="text-lg font-semibold text-text-primary">Add Tracking Event</h3>
-              <p className="mt-1 text-sm text-text-secondary">Post a new status update for {activeTrackId}.</p>
-              <form onSubmit={handleAddEvent} className="mt-4 grid gap-3 sm:grid-cols-2">
-                <select
-                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  value={eventStatus}
-                  onChange={(e) => setEventStatus(e.target.value)}
-                >
-                  {TRACKING_STATUS_OPTIONS.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  placeholder="Current location"
-                  value={eventLocation}
-                  onChange={(e) => setEventLocation(e.target.value)}
-                  required
-                />
-                <input
-                  type="text"
-                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:col-span-2"
-                  placeholder="Next location (optional)"
-                  value={eventNextLocation}
-                  onChange={(e) => setEventNextLocation(e.target.value)}
-                />
-                <button
-                  type="submit"
-                  disabled={eventSubmitting}
-                  className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50 sm:col-span-2"
-                >
-                  {eventSubmitting ? "Submitting..." : "Add Event"}
-                </button>
-              </form>
-              {eventError && <p className="mt-2 text-xs font-medium text-red-600">{eventError}</p>}
-            </Card>
-          )}
         </div>
-
-        <MapCard title="Route Overview" />
-      </div>
+      )}
     </PageContainer>
   );
 }

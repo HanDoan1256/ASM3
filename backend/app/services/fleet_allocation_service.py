@@ -11,7 +11,9 @@ from app.core.statuses import (
 )
 from app.models.driver import Driver
 from app.models.tracking import Tracking
+from app.models.tracking_history import TrackingHistory
 from app.models.vehicle import Vehicle
+from app.repositories.address_repository import AddressRepository
 from app.repositories.branch_repository import BranchRepository
 from app.repositories.driver_repository import DriverRepository
 from app.repositories.shipment_order_repository import ShipmentOrderRepository
@@ -31,6 +33,7 @@ class FleetAllocationService:
         self.shipment_repository = ShipmentRepository(db)
         self.tracking_repository = TrackingRepository(db)
         self.vehicle_repository = VehicleRepository(db)
+        self.address_repository = AddressRepository(db)
 
     def list_branches(self):
         return self.branch_repository.list_all()
@@ -38,70 +41,75 @@ class FleetAllocationService:
     def list_vehicles(self):
         return self.vehicle_repository.list_all()
 
-    def create_vehicle(self, payload: VehicleCreate):
-        return self.vehicle_repository.create(Vehicle(**payload.model_dump()))
+    def create_vehicle(self, payload: VehicleCreate) -> Vehicle:
+        vehicle = Vehicle(**payload.model_dump(), status=RESOURCE_AVAILABLE)
+        return self.vehicle_repository.create(vehicle)
 
-    def update_vehicle(self, vehicle_id: str, payload: VehicleUpdate):
+    def update_vehicle(self, vehicle_id: str, payload: VehicleUpdate) -> Vehicle | None:
         vehicle = self.vehicle_repository.get_by_id(vehicle_id)
         if not vehicle:
             return None
-        for field, value in payload.model_dump(exclude_none=True).items():
-            setattr(vehicle, field, value)
-        return self.vehicle_repository.update(vehicle)
+        update_data = payload.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(vehicle, key, value)
+        self.db.commit()
+        self.db.refresh(vehicle)
+        return vehicle
 
     def list_drivers(self):
         return self.driver_repository.list_all()
 
-    def create_driver(self, payload: DriverCreate):
-        return self.driver_repository.create(Driver(**payload.model_dump()))
+    def create_driver(self, payload: DriverCreate) -> Driver:
+        driver = Driver(**payload.model_dump(), status=RESOURCE_AVAILABLE)
+        return self.driver_repository.create(driver)
 
-    def update_driver(self, driver_id: str, payload: DriverUpdate):
+    def update_driver(self, driver_id: str, payload: DriverUpdate) -> Driver | None:
         driver = self.driver_repository.get_by_id(driver_id)
         if not driver:
             return None
-        for field, value in payload.model_dump(exclude_none=True).items():
-            setattr(driver, field, value)
-        return self.driver_repository.update(driver)
+        update_data = payload.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(driver, key, value)
+        self.db.commit()
+        self.db.refresh(driver)
+        return driver
 
     def list_allocations(self):
-        return self.shipment_repository.list_allocations()
+        shipments = self.shipment_repository.list_all()
+        allocations = []
+        for s in shipments:
+            order = self.order_repository.get_by_id(s.order_id)
+            allocations.append({
+                "shipment_id": s.shipment_id,
+                "order_id": s.order_id,
+                "customer_id": order.customer_id if order else None,
+                "vehicle_id": s.vehicle_id,
+                "driver_id": s.driver_id,
+                "shipment_status": s.shipment_status,
+                "track_id": s.track_id,
+            })
+        return allocations
 
-    def allocate_resources(self, order_id: str):
-        """Assign the first available, sufficiently-capacity vehicle and the first
-        available driver to an approved order's shipment, and initialize tracking.
-
-        Known limitation: allocation does not currently consider Branch/Route
-        proximity (no reliable linkage between an order's addresses and a branch
-        exists yet), nor does it compute real distances/ETAs. The first available
-        resource meeting the capacity constraint is chosen; this is documented in
-        PROJECT_STATUS.md as a known simplification.
-        """
+    def allocate_resources(self, order_id: str, branch_id: str | None = None) -> dict:
         order = self.order_repository.get_by_id(order_id)
         if not order:
-            raise ValueError("Order not found")
+            raise ValueError(f"Order '{order_id}' not found.")
 
-        if normalize_order_status(order.order_status) != ORDER_APPROVED:
-            raise ValueError(f"Order '{order_id}' must be Approved before fleet allocation.")
+        current_order_status = normalize_order_status(order.order_status)
+        if current_order_status != ORDER_APPROVED:
+            raise ValueError("Order must be approved before vehicle allocation.")
 
         shipment = self.shipment_repository.get_by_order_id(order_id)
         if not shipment:
-            raise ValueError(f"No shipment found for order '{order_id}'.")
+            raise ValueError(f"Shipment for order '{order_id}' not found.")
 
-        if shipment.vehicle_id or shipment.driver_id or shipment.shipment_status != SHIPMENT_CREATED:
-            raise ValueError(f"Order '{order_id}' has already been allocated.")
+        package_details = order.package_details if hasattr(order, "package_details") else None
+        weight_tons = float(package_details.weight) / 1000.0 if package_details else 0.1
 
-        # Package weight (kg) is looked up via the order's package_details relation so we
-        # can filter vehicles by tonnage capacity.
-        from app.repositories.package_details_repository import PackageDetailsRepository
-
-        package_repository = PackageDetailsRepository(self.db)
-        package_details = package_repository.get_by_id(order.package_id) if order.package_id else None
-        weight_tons = float(package_details.weight) / 1000.0 if package_details else 0.0
-
+        # Find available vehicle with sufficient capacity
         available_vehicles = sorted(
             (
-                v
-                for v in self.db.scalars(
+                v for v in self.db.scalars(
                     select(Vehicle).where(Vehicle.status == RESOURCE_AVAILABLE)
                 ).all()
                 if float(v.capacity or 0) >= weight_tons
@@ -112,27 +120,99 @@ class FleetAllocationService:
             raise ValueError("No available vehicle with sufficient capacity.")
         vehicle = available_vehicles[0]
 
+        # Find available driver
         available_driver = self.db.scalar(select(Driver).where(Driver.status == RESOURCE_AVAILABLE))
         if not available_driver:
             raise ValueError("No available driver.")
 
+        # Update vehicle and driver status
+        vehicle.status = RESOURCE_ASSIGNED
+        available_driver.status = RESOURCE_ASSIGNED
+
+        # Resolve current location from sender address
+        current_location = "Origin Branch"
+        if hasattr(order, "sender_address") and order.sender_address:
+            addr_parts = [
+                p for p in [order.sender_address.street, order.sender_address.district, order.sender_address.city] if p
+            ]
+            if addr_parts:
+                current_location = ", ".join(addr_parts)
+
+        # Resolve next location (Branch)
+        next_location = "Central Transit Hub"
+        if branch_id:
+            branch = self.branch_repository.get_by_id(branch_id)
+            if branch:
+                next_location = branch.branch_name
+        else:
+            branches = self.branch_repository.list_all()
+            if branches:
+                next_location = branches[0].branch_name
+
+        # 1. Ensure a Tracking record exists and is flushed to the database FIRST
+      # 1. Generate or use track_id
+        track_id = shipment.track_id or build_identifier("TRK")
+
+        # 2. Force-create or update the Tracking record and flush it FIRST
+        tracking = self.tracking_repository.get_by_id(track_id)
+        if not tracking:
+            tracking = Tracking(
+                track_id=track_id,
+                current_location=current_location,
+                status=SHIPMENT_ASSIGNED,
+            )
+            self.db.add(tracking)
+        else:
+            tracking.current_location = current_location
+            tracking.status = SHIPMENT_ASSIGNED
+            self.db.add(tracking)
+
+        # Force write the Tracking record to the DB so the PK exists immediately
+        self.db.flush()
+
+        # 3. Now it is 100% safe to assign the track_id and resources to the shipment
+        shipment.track_id = track_id
         shipment.vehicle_id = vehicle.vehicle_id
         shipment.driver_id = available_driver.driver_id
         shipment.shipment_status = SHIPMENT_ASSIGNED
 
-        vehicle.status = RESOURCE_ASSIGNED
-        available_driver.status = RESOURCE_ASSIGNED
-
-        if not shipment.track_id:
-            tracking = Tracking(
-                track_id=build_identifier("TRK"),
-                current_location="Origin Branch",
-                status=SHIPMENT_ASSIGNED,
-            )
-            self.db.add(tracking)
-            self.db.flush()
-            shipment.track_id = tracking.track_id
+        # 4. Create initial tracking history record
+        history_entry = TrackingHistory(
+            track_id=track_id,
+            current_location=current_location,
+            next_location=next_location,
+            status=SHIPMENT_ASSIGNED,
+        )
+        self.db.add(history_entry)
+        self.db.flush()
 
         self.db.commit()
         self.db.refresh(shipment)
-        return shipment
+
+        return {
+            "message": f"Successfully allocated vehicle {vehicle.vehicle_id} and driver {available_driver.driver_id} to order {order_id}.",
+            "track_id": track_id,
+        }
+
+        # 2. Assign resources to shipment AFTER tracking is secured
+        shipment.vehicle_id = vehicle.vehicle_id
+        shipment.driver_id = available_driver.driver_id
+        shipment.shipment_status = SHIPMENT_ASSIGNED
+
+        # 3. Create initial tracking history record
+        history_entry = TrackingHistory(
+            track_id=track_id,
+            current_location=current_location,
+            next_location=next_location,
+            status=SHIPMENT_ASSIGNED,
+        )
+        self.db.add(history_entry)
+        self.db.flush()
+
+        self.db.commit()
+        self.db.refresh(shipment)
+
+        return {
+            "message": f"Successfully allocated vehicle {vehicle.vehicle_id} and driver {available_driver.driver_id} to order {order_id}.",
+            "track_id": track_id,
+        }

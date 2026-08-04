@@ -1,18 +1,20 @@
 from sqlalchemy.orm import Session
-from app.repositories.staff_repository import StaffRepository
 from app.models.address import Address
+from app.repositories.account_history_repository import AccountHistoryRepository
 from app.repositories.address_repository import AddressRepository
 from app.repositories.customer_repository import CustomerRepository
-from app.repositories.account_history_repository import AccountHistoryRepository
+from app.repositories.staff_repository import StaffRepository
 from app.schemas.account import AddressCreate, AddressUpdate, CustomerUpdate
 
 
 class AccountService:
     def __init__(self, db: Session) -> None:
+        self.db = db  # <-- CRITICAL: Bind the database session here
         self.address_repository = AddressRepository(db)
         self.customer_repository = CustomerRepository(db)
         self.history_repository = AccountHistoryRepository(db)
         self.staff_repository = StaffRepository(db)
+
     def get_customer(self, customer_id: str):
         return self.customer_repository.get_by_id(customer_id)
 
@@ -37,7 +39,6 @@ class AccountService:
         return updated_customer
 
     def delete_customer(self, customer_id: str) -> bool:
-       
         customer = self.customer_repository.get_by_id(customer_id)
         if not customer:
             return False
@@ -52,19 +53,33 @@ class AccountService:
         address = Address(customer_id=customer_id, **payload.model_dump(exclude={"customer_id"}))
         return self.address_repository.create(address)
 
-    def update_address(self, address_id: int, payload: AddressUpdate):
-        address = self.address_repository.get_by_id(address_id)
+    def get_address(self, address_id: int):
+        """Retrieve a specific address by ID using the bound session"""
+        return self.db.get(Address, address_id)
+
+    def update_address(self, address_id: int, payload: dict | AddressUpdate):
+        """Update address information safely"""
+        address = self.get_address(address_id)
         if not address:
             return None
-        for field, value in payload.model_dump(exclude_none=True).items():
-            setattr(address, field, value)
-        return self.address_repository.update(address)
+        
+        data = payload.model_dump(exclude_none=True) if hasattr(payload, "model_dump") else payload
+        for key, value in data.items():
+            if value is not None:
+                setattr(address, key, value)
+                
+        self.db.commit()
+        self.db.refresh(address)
+        return address
 
     def delete_address(self, address_id: int) -> bool:
-        address = self.address_repository.get_by_id(address_id)
+        """Delete an address by ID"""
+        address = self.get_address(address_id)
         if not address:
             return False
-        self.address_repository.delete(address)
+        
+        self.db.delete(address)
+        self.db.commit()
         return True
 
     def get_account_history(self, customer_id: str):

@@ -46,7 +46,9 @@ class PaymentService:
         if not invoice:
             raise ValueError("Invoice not found")
 
-        if payload.payment_method not in PAYMENT_METHODS and payload.payment_method not in {"Cash", "Transfer", "COD"}:
+        # Expanded allowed payment methods to support Banking Transfer variants sent from the UI
+        allowed_methods = {"Cash", "Transfer", "Banking Transfer", "Bank Transfer", "COD"}
+        if payload.payment_method not in PAYMENT_METHODS and payload.payment_method not in allowed_methods:
             raise ValueError(f"Invalid payment method '{payload.payment_method}'.")
 
         if round(float(payload.amount), 2) != round(float(invoice.total), 2):

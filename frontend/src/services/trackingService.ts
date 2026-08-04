@@ -2,8 +2,7 @@ import { api } from "./api";
 import type { 
   ShipmentRecord, 
   TrackingHistoryItem, 
-  TrackingRecord, 
-  TrackingStatusUpdatePayload 
+  TrackingRecord 
 } from "../types/tracking";
 
 export const trackingService = {
@@ -14,14 +13,6 @@ export const trackingService = {
 
   getTrackingHistory: async (trackId: string): Promise<TrackingHistoryItem[]> => {
     const response = await api.get(`/tracking/${trackId}/history`);
-    return response.data;
-  },
-
-  updateTrackingEvent: async (
-    trackId: string, 
-    payload: TrackingStatusUpdatePayload
-  ): Promise<TrackingRecord> => {
-    const response = await api.post(`/tracking/${trackId}/events`, payload);
     return response.data;
   },
 
