@@ -159,7 +159,6 @@ export function AccountPage() {
     const loadAccountData = async () => {
       try {
         if (isStaff) {
-          // GỌI API THỰC TẾ LẤY THÔNG TIN STAFF TỪ DATABASE
           const staffProfile = await accountService.getStaff(principalId);
           setUserData({
             id: staffProfile.staff_id || staffProfile.id || principalId,
@@ -512,7 +511,7 @@ export function AccountPage() {
           </div>
         </Card>
 
-        {/* Activity History Card (Hiện cho cả Staff và Customer) */}
+        {/* Activity History Card */}
         <Card className="p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -548,7 +547,7 @@ export function AccountPage() {
           )}
         </Card>
 
-        {/* Saved Delivery Addresses Card (Hiện cho cả Staff và Customer) */}
+        {/* Saved Delivery Addresses Card */}
         <Card className="space-y-4 p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -606,82 +605,86 @@ export function AccountPage() {
         </Card>
       </div>
 
-      {/* Address Form Modal */}
+      {/* Address Form Modal - ĐÃ TỐI ƯU RESPONSIVE, CÓ THANH CUỘN BÊN TRONG */}
       <Modal
         isOpen={isAddressModalOpen}
         onClose={closeAddressModal}
         title={editingAddress ? "Edit Address" : "Add Address"}
       >
-        <form className="space-y-4" onSubmit={handleSaveAddress}>
-          <Input
-            label="Receiver Name *"
-            value={addressForm.receiver_name}
-            onChange={(event) => handleAddressFieldChange("receiver_name", event.target.value)}
-          />
-
-          <Input
-            label="Receiver Phone *"
-            placeholder="+84 901234567"
-            value={addressForm.receiver_phone}
-            onChange={(event) => handleAddressFieldChange("receiver_phone", sanitizeVietnamPhone(event.target.value))}
-          />
-
-          <Textarea
-            label="Street / House No. *"
-            rows={3}
-            value={addressForm.street_line}
-            onChange={(event) => handleAddressFieldChange("street_line", event.target.value)}
-          />
-
-          <Select
-            label="City / Province *"
-            options={provinceOptions}
-            value={addressForm.city_code}
-            onChange={(event) => {
-              handleAddressFieldChange("city_code", event.target.value);
-              handleAddressFieldChange("district_code", "");
-              handleAddressFieldChange("ward", "");
-            }}
-          />
-
-          <Select
-            disabled={!addressForm.city_code}
-            label="District *"
-            options={districtOptions}
-            value={addressForm.district_code}
-            onChange={(event) => {
-              handleAddressFieldChange("district_code", event.target.value);
-              handleAddressFieldChange("ward", "");
-            }}
-          />
-
-          <Select
-            disabled={!addressForm.district_code}
-            label="Ward *"
-            options={wardOptions}
-            value={addressForm.ward}
-            onChange={(event) => handleAddressFieldChange("ward", event.target.value)}
-          />
-
-          <Input
-            label="Postal Code"
-            value={addressForm.postal_code}
-            onChange={(event) => handleAddressFieldChange("postal_code", event.target.value)}
-          />
-
-          <label className="flex items-center gap-3 rounded-2xl border border-border bg-gray-50 px-4 py-3 text-sm font-medium text-text-primary">
-            <input
-              type="checkbox"
-              checked={addressForm.is_default}
-              onChange={(event) => handleAddressFieldChange("is_default", event.target.checked)}
+        <form className="flex flex-col max-h-[80vh]" onSubmit={handleSaveAddress}>
+          {/* Phần nội dung form được phép cuộn dọc khi vượt quá chiều cao màn hình */}
+          <div className="space-y-4 overflow-y-auto pr-1 pb-4">
+            <Input
+              label="Receiver Name *"
+              value={addressForm.receiver_name}
+              onChange={(event) => handleAddressFieldChange("receiver_name", event.target.value)}
             />
-            Set as default address
-          </label>
 
-          {addressError && <p className="text-sm font-medium text-danger">{addressError}</p>}
+            <Input
+              label="Receiver Phone *"
+              placeholder="+84 901234567"
+              value={addressForm.receiver_phone}
+              onChange={(event) => handleAddressFieldChange("receiver_phone", sanitizeVietnamPhone(event.target.value))}
+            />
 
-          <div className="flex justify-end gap-3">
-            <Button variant="secondary" onClick={closeAddressModal}>
+            <Textarea
+              label="Street / House No. *"
+              rows={3}
+              value={addressForm.street_line}
+              onChange={(event) => handleAddressFieldChange("street_line", event.target.value)}
+            />
+
+            <Select
+              label="City / Province *"
+              options={provinceOptions}
+              value={addressForm.city_code}
+              onChange={(event) => {
+                handleAddressFieldChange("city_code", event.target.value);
+                handleAddressFieldChange("district_code", "");
+                handleAddressFieldChange("ward", "");
+              }}
+            />
+
+            <Select
+              disabled={!addressForm.city_code}
+              label="District *"
+              options={districtOptions}
+              value={addressForm.district_code}
+              onChange={(event) => {
+                handleAddressFieldChange("district_code", event.target.value);
+                handleAddressFieldChange("ward", "");
+              }}
+            />
+
+            <Select
+              disabled={!addressForm.district_code}
+              label="Ward *"
+              options={wardOptions}
+              value={addressForm.ward}
+              onChange={(event) => handleAddressFieldChange("ward", event.target.value)}
+            />
+
+            <Input
+              label="Postal Code"
+              value={addressForm.postal_code}
+              onChange={(event) => handleAddressFieldChange("postal_code", event.target.value)}
+            />
+
+            <label className="flex items-center gap-3 rounded-2xl border border-border bg-gray-50 px-4 py-3 text-sm font-medium text-text-primary cursor-pointer">
+              <input
+                type="checkbox"
+                checked={addressForm.is_default}
+                onChange={(event) => handleAddressFieldChange("is_default", event.target.checked)}
+              />
+              Set as default address
+            </label>
+
+            {addressError && <p className="text-sm font-medium text-danger">{addressError}</p>}
+          </div>
+
+          {/* Phần Footer chứa nút bấm luôn được ghim cố định ở đáy modal, không bị che khuất */}
+          <div className="flex justify-end gap-3 pt-4 border-t border-border mt-2 bg-white">
+            <Button variant="secondary" type="button" onClick={closeAddressModal}>
               Cancel
             </Button>
             <Button disabled={savingAddress} type="submit">
