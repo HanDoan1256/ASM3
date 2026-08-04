@@ -101,15 +101,7 @@ export function DashboardPage() {
   return (
     <PageContainer>
       <PageHeader
-        actions={
-          isStaff
-            ? []
-            : [
-                { icon: "add", label: "Create Order", onClick: () => handleProtectedAction(() => navigate("/orders/create")), variant: "primary" },
-                { icon: "pin_drop", label: "Track Shipment", onClick: () => handleProtectedAction(() => navigate("/shipments/tracking")), variant: "secondary" },
-                { icon: "assignment_ind", label: "Assign Vehicle", onClick: () => handleProtectedAction(() => navigate("/fleet")), variant: "secondary" },
-              ]
-        }
+        actions={[]}
         eyebrow="Operations Overview"
         description="Monitor logistics performance, shipment movement, and fleet activity from a clean enterprise dashboard designed for operational teams."
         title="Dashboard"
@@ -283,8 +275,6 @@ export function DashboardPage() {
           )}
         </Card>
       </div>
-
-      {/* ĐÃ XÓA HOÀN TOÀN KHỐI 3 Ô INFO CARD Ở DƯỚI CÙNG CHO CẢ CUSTOMER LẪN STAFF */}
 
       {/* Modal Popup View Report */}
       <Modal isOpen={isReportModalOpen} onClose={() => setIsReportModalOpen(false)} title="Monthly Orders Report">
