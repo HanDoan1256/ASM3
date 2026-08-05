@@ -41,8 +41,8 @@ class AuthService:
         if customer:
             if customer.status == "Deleted":
                 raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="This account has been deactivated or deleted."
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid credentials."
                 )
             
             if verify_password(payload.password, customer.password_hash):

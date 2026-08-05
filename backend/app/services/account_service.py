@@ -42,8 +42,10 @@ class AccountService:
         customer = self.customer_repository.get_by_id(customer_id)
         if not customer:
             return False
-        
-        self.customer_repository.delete(customer)
+
+        customer.status = "Deleted"
+        self.db.commit()
+        self.db.refresh(customer)
         return True
 
     def list_addresses(self, customer_id: str):

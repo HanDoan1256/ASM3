@@ -24,6 +24,8 @@ from app.schemas.fleet import DriverCreate, DriverUpdate, VehicleCreate, Vehicle
 from app.utils.identifiers import build_identifier
 
 
+
+
 class FleetAllocationService:
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -42,7 +44,11 @@ class FleetAllocationService:
         return self.vehicle_repository.list_all()
 
     def create_vehicle(self, payload: VehicleCreate) -> Vehicle:
-        vehicle = Vehicle(**payload.model_dump(), status=RESOURCE_AVAILABLE)
+        data = payload.model_dump(exclude={"status"})
+        vehicle = Vehicle(
+            **data,
+            status=RESOURCE_AVAILABLE,
+        )
         return self.vehicle_repository.create(vehicle)
 
     def update_vehicle(self, vehicle_id: str, payload: VehicleUpdate) -> Vehicle | None:
@@ -60,7 +66,11 @@ class FleetAllocationService:
         return self.driver_repository.list_all()
 
     def create_driver(self, payload: DriverCreate) -> Driver:
-        driver = Driver(**payload.model_dump(), status=RESOURCE_AVAILABLE)
+        data = payload.model_dump(exclude={"status"})
+        driver = Driver(
+            **data,
+            status=RESOURCE_AVAILABLE,
+        )
         return self.driver_repository.create(driver)
 
     def update_driver(self, driver_id: str, payload: DriverUpdate) -> Driver | None:
@@ -194,25 +204,3 @@ class FleetAllocationService:
             "track_id": track_id,
         }
 
-        # 2. Assign resources to shipment AFTER tracking is secured
-        shipment.vehicle_id = vehicle.vehicle_id
-        shipment.driver_id = available_driver.driver_id
-        shipment.shipment_status = SHIPMENT_ASSIGNED
-
-        # 3. Create initial tracking history record
-        history_entry = TrackingHistory(
-            track_id=track_id,
-            current_location=current_location,
-            next_location=next_location,
-            status=SHIPMENT_ASSIGNED,
-        )
-        self.db.add(history_entry)
-        self.db.flush()
-
-        self.db.commit()
-        self.db.refresh(shipment)
-
-        return {
-            "message": f"Successfully allocated vehicle {vehicle.vehicle_id} and driver {available_driver.driver_id} to order {order_id}.",
-            "track_id": track_id,
-        }

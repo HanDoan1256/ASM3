@@ -22,10 +22,13 @@ class CustomerRepository(BaseRepository[Customer]):
         return customer
 
     def delete_account(self, customer_id: str) -> bool:
-        """Permanently deletes the customer row from the database."""
         customer = self.get_by_id(customer_id)
-        if customer:
-            self.db.delete(customer)  # This physically deletes the row
-            self.db.commit()
-            return True
-        return False
+
+        if not customer:
+            return False
+
+        customer.status = "Deleted"
+        self.db.commit()
+        self.db.refresh(customer)
+
+        return True
